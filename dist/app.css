@@ -31,8 +31,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, .hit:focus-visi
 /* One continuous, warm paper surface. No separate white input cards. */
 #surface::after {
   content: ''; position: absolute; inset: var(--head) 0 0; z-index: 0; pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.15' filter='url(%23p)'/%3E%3C/svg%3E");
-  opacity: .14;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.24' filter='url(%23p)'/%3E%3C/svg%3E");
+  opacity: .25;
+}
+#paper-wallpaper {
+  position: absolute; inset: var(--head) 0 0; z-index: 0; pointer-events: none;
+  background: center / cover no-repeat; opacity: .26;
+  filter: grayscale(.8) contrast(.84) sepia(.25);
 }
 header {
   height: var(--head); position: relative; z-index: 5;
@@ -71,10 +76,13 @@ header {
 /* The paper grid belongs to the viewport, not the zoomed board. */
 #paper {
   overscroll-behavior: none;
-  background-image: radial-gradient(circle, rgba(123, 77, 44, .40) 0 1px, transparent 1.35px);
+  background-image: radial-gradient(circle, rgba(123, 77, 44, .24) 0 1px, transparent 1.35px);
   background-size: 20px 20px;
 }
-#paper.pan { cursor: grab; }
+#paper.pan, #paper.pan .note { cursor: grab; }
+#paper[data-gesture="move"], #paper[data-gesture="move"] * { cursor: grabbing !important; }
+#paper[data-gesture="link"], #paper[data-gesture="link"] * { cursor: crosshair !important; }
+#paper { scroll-axis-lock: none; }
 #paper.grabbing { cursor: grabbing; }
 #board { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
 #links { position: absolute; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
@@ -84,7 +92,7 @@ header {
 .note { position: absolute; width: max-content; max-width: 300px; min-width: 12px; min-height: 31px; padding: 2px 0;
   border: 0; outline: 0; border-radius: 0; background: transparent;
   display: flex; align-items: flex-start; gap: 0; font-size: 17px; line-height: 1.6;
-  white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; user-select: none;
+  white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; user-select: none;
 }
 .note .content { min-width: 0; max-width: 300px; }
 .note .content, .editor {
@@ -93,6 +101,19 @@ header {
 }
 .note.selected:not(.editing)::before { content: ''; position: absolute; left: -5px; top: 4px; bottom: 4px; border-left: 2px solid #a4704c77; }
 .note.editing { z-index: 2; cursor: text; }
+.note.move-ready:not(.editing) { cursor: grab; }
+.note.move-ready:not(.editing)::before {
+  content: ''; position: absolute; left: -6px; top: 4px; bottom: 4px;
+  border-left: 2px dotted var(--accent); opacity: .65; pointer-events: none;
+}
+#ink-hint {
+  position: absolute; z-index: 9; top: calc(var(--head) + 8px); right: 14px;
+  display: flex; align-items: center; gap: 7px; padding: 6px 10px;
+  color: var(--ink); background: #fff4e2; border: 1px solid var(--line);
+  border-radius: 5px; box-shadow: 0 3px 10px #5f41171a; font-size: 12px; pointer-events: none;
+}
+#ink-hint::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--hint-ink); }
+#panel .level-back { color: var(--accent); font-size: 12px; text-align: left; margin-right: 31px; }
 .note.sticky { padding: 6px 9px; background: #eccb7f33; }
 .editor { outline: none !important; border: none; box-shadow: none; background: transparent;
   white-space: pre-wrap; overflow-wrap: anywhere; min-height: 27.2px; min-width: 12px; max-width: 300px;
@@ -144,7 +165,7 @@ dialog form { text-align: right; margin-top: 18px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 @media print {
   html, body, #surface { height: auto; position: static; overflow: visible; background: white; }
-  header, #panel, dialog, .port, #surface::after, .sr-only { display: none !important; }
+  header, #panel, #ink-hint, #paper-wallpaper, dialog, .port, #surface::after, .sr-only { display: none !important; }
   #paper { position: relative; background: white; overflow: visible; inset: auto; width: var(--print-w,100%); height: var(--print-h,auto); }
   #board { transform: var(--print-t,none) !important; }
   .note::before { display: none; }

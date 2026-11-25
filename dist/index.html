@@ -31,25 +31,27 @@
       <button id="file" class="icon-button" aria-label="草稿与操作菜单" aria-haspopup="true" aria-expanded="false">⋯</button>
     </div>
   </header>
+  <div id="paper-wallpaper" hidden aria-hidden="true"></div>
   <main id="paper" tabindex="0" aria-label="草稿画布，点击空白输入，Tab 创建子块">
     <div id="board"><svg id="links" xmlns="http://www.w3.org/2000/svg" aria-label="连线"></svg><div id="notes"></div></div>
   </main>
   <aside id="panel" hidden tabindex="-1" aria-label="操作菜单"></aside>
+  <div id="ink-hint" hidden aria-hidden="true"><span></span></div>
   <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
 </div>
 <input id="upload" type="file" accept=".json,application/json" hidden>
 <dialog id="manual">
   <h2>随手写，随手连</h2>
   <dl>
-    <dt>书写</dt><dd>单击空白落笔，空块离开即释放；点击文字继续编辑，拖动文字可自由移动。</dd>
+    <dt>书写</dt><dd>单击空白落笔，空块离开即释放；点击文字继续编辑；未进入编辑时快速拖动拉线，悬停后再拖动挪块。</dd>
     <dt>生长</dt><dd>Tab 创建子块，可连续深入；Enter 新建同级，Shift+Enter 在块内换行。Ctrl+Enter 记一个独立想法。</dd>
     <dt>用色</dt><dd>F17 向左、F18 向右循环黑、红、蓝、灰。选中文字改选区，未选中时改下一笔；选中连线时改线色。</dd>
-    <dt>移动</dt><dd>触控板双指滑动、捏合缩放；按住鼠标滚轮拖动可自由斜移，也可按住空格拖动。空白轻点写字，裸拖空白留空。滚轮上下，Shift+滚轮左右，Ctrl+滚轮缩放。Alt+拖动可移动正在编辑的文字块。</dd>
+    <dt>移动</dt><dd>触控板双指滑动、捏合缩放；按住鼠标滚轮拖动可自由斜移，也可按住空格拖动。空白轻点写字，裸拖空白留空。滚轮上下，Ctrl+滚轮缩放。</dd>
     <dt>撤回</dt><dd>Ctrl+Z 撤销；Ctrl+Y / Ctrl+Shift+Z 重做。Ctrl+S 立即保存，平时自动保存。</dd>
     <dt>草稿</dt><dd>Ctrl+Alt+N 新建标签；Ctrl+PageUp / PageDown 切换；F2 改名；Ctrl+Alt+T 恢复最近关闭。关闭标签保留草稿。</dd>
-    <dt>连线</dt><dd>单击文字编辑；从文字块或连接点拖动来连线，落在空白会新建相连的文字块。Alt+拖动挪块，编辑中的普通拖动选字。线的方向、线型和颜色在顶栏调整。</dd>
-    <dt>菜单</dt><dd>右键在指针旁打开，Shift+F10 或菜单键也可打开；↑↓ 切换、Enter 选择、Esc 关闭。</dd>
-    <dt>视野</dt><dd>Ctrl+0 显示全部；Ctrl+＋ / －缩放；Alt+方向键移动选中块，无选中时平移画布。</dd>
+    <dt>连线</dt><dd>单击文字编辑；从文字块或连接点拖动来连线，落在空白会新建相连的文字块。悬停到光标变成抓手后直接拖动挪块；编辑中的普通拖动选字。线的方向、线型和颜色在顶栏调整。</dd>
+    <dt>菜单</dt><dd>F19 打开工具菜单；↑↓ 切换、→ 进入下一级、← 返回、Enter 选择、Esc 关闭。右键在指针旁打开对象菜单，Shift+F10 也可打开。</dd>
+    <dt>视野</dt><dd>Ctrl+0 显示全部；Ctrl+＋ / －缩放；Alt+方向键移动选中块；无选中时可按住两个方向键斜移画布。</dd>
   </dl>
   <form method="dialog"><button class="primary">继续写</button></form>
 </dialog>

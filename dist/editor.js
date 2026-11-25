@@ -70,7 +70,6 @@
     let state = { text: cleanText(node.text), runs: normalizedRuns(node.text, baseColor, node.runs) };
     let typingColor = validColor(options.typingColor, baseColor);
     let selection = { start: state.text.length, end: state.text.length, direction: 'forward' };
-    let override = { position: selection.end, color: typingColor };
     let composing = false, compositionUntil = 0, destroyed = false;
     let beforeSelection = null, nativeRange = null;
     const listeners = [];
@@ -191,13 +190,7 @@
       const current = window.getSelection();
       if (!current?.rangeCount || !host.contains(current.anchorNode) || !host.contains(current.focusNode)) return;
       const next = getSelection();
-      if (next.start !== next.end) {
-        typingColor = colorAt(next.start, false);
-        override = null;
-      } else if (!override || override.position !== next.end) {
-        typingColor = colorAt(next.end);
-        override = null;
-      }
+      // Cursor movement and selection never choose a different pen.
       caretColor();
       onSelectionChange?.({ ...next, color: getColor() });
     }
@@ -217,10 +210,8 @@
       const text = old.slice(0, start) + inserted + old.slice(end);
       const different = text !== old || JSON.stringify(nextRuns) !== JSON.stringify(state.runs);
       state = { text, runs: nextRuns };
-      typingColor = color;
-      override = { position: start + inserted.length, color };
       render();
-      setSelection(override.position);
+      setSelection(start + inserted.length);
       if (different) emit(kind, priorSelection);
       return different;
     }
@@ -265,7 +256,6 @@
           ...sliceRuns(state.runs, oldEnd, state.text.length)
         ])
       };
-      override = { position: nextSelection.end, color: typingColor };
       if (!composing) { render(); setSelection(nextSelection.start, nextSelection.end, nextSelection.direction); }
       emit(kind, prior);
       return true;
@@ -274,11 +264,9 @@
     function setColor(color) {
       color = validColor(color, typingColor);
       const prior = getSelection();
-      typingColor = color;
       if (prior.start === prior.end) {
-        override = { position: prior.end, color };
-        render();
-        setSelection(prior.end);
+        typingColor = color;
+        caretColor();
         prepareNativeInk();
         onSelectionChange?.({ ...prior, color });
         return false;
@@ -290,7 +278,6 @@
       ]);
       const different = JSON.stringify(nextRuns) !== JSON.stringify(state.runs);
       state.runs = nextRuns;
-      override = null;
       render();
       host.focus({ preventScroll: true });
       setSelection(prior.start, prior.end, prior.direction);
@@ -303,8 +290,6 @@
       baseColor = validColor(value.color, baseColor);
       state = { text: cleanText(value.text), runs: normalizedRuns(value.text, baseColor, value.runs) };
       const restored = range || { start: state.text.length, end: state.text.length, direction: 'forward' };
-      typingColor = colorAt(restored.end);
-      override = { position: restored.end, color: typingColor };
       render();
       setSelection(restored.start, restored.end, restored.direction);
     }

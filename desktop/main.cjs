@@ -2,7 +2,7 @@
 const {app, BrowserWindow, Menu, session, dialog, ipcMain}=require('electron');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
-const {writeFile}=require('node:fs/promises');
+const {open,writeFile}=require('node:fs/promises');
 
 app.setName('草稿纸');
 app.setPath('userData',path.join(app.getPath('appData'),'Caogaozhi'));
@@ -54,10 +54,14 @@ function openPaper(){
       return;
     }
     // Handle the remapped function keys before Chromium can turn them into a
-    // second DOM keydown. The web editor uses the same color action for its
-    // browser key/keyCode fallback. Other function keys stay available.
+    // second DOM keydown. The renderer also handles keys in browser previews.
     if(!input.control&&!input.meta&&!input.alt){
       const direction=key==='f17'||code==='f17'?-1:key==='f18'||code==='f18'?1:0;
+      if(key==='f19'||code==='f19'){
+        event.preventDefault();
+        if(!input.isAutoRepeat)mainWindow.webContents.send('paper:tools');
+        return;
+      }
       if(direction){
         event.preventDefault();
         mainWindow.webContents.send('paper:color-step',direction);
@@ -81,6 +85,20 @@ else{
       if(!mainWindow||event.sender!==mainWindow.webContents||
          event.senderFrame?.url.split('?')[0]!==paperURL)return false;
       return saveScreenshot(mainWindow);
+    });
+    ipcMain.handle('paper:local-wallpaper',async(event)=>{
+      if(!mainWindow||event.sender!==mainWindow.webContents||
+         event.senderFrame?.url.split('?')[0]!==paperURL)return null;
+      let handle;
+      try {
+        handle=await open(path.join(app.getPath('userData'),'paper-wallpaper.png'),'r');
+        const meta=await handle.stat();
+        if(!meta.isFile()||meta.size<24||meta.size>8_000_000)return null;
+        const data=await handle.readFile();
+        if(data.length>8_000_000||data.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')return null;
+        return 'data:image/png;base64,'+data.toString('base64');
+      } catch { return null; }
+      finally { if(handle)await handle.close().catch(()=>{}); }
     });
     session.defaultSession.setPermissionRequestHandler((_contents,_permission,respond)=>respond(false));
     session.defaultSession.setPermissionCheckHandler(()=>false);

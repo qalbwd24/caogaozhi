@@ -9,7 +9,15 @@ const clone = value => JSON.parse(JSON.stringify(value));
 let model = blank(), selected = null, edgeId = null, ink = 'black', source = null, editing = null;
 let cam = {x:0,y:0,z:1}, gesture = null, pinch = null, preview = null, space = false, panelType = '';
 let workspace, loading = true, drawFrame = 0, wheelFrame = 0, saveError = '', renaming = false;
-let panelAnchor = null, panelReturn = null;
+let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null;
+let hover = null, hoverTimer = 0, movable = null, inkHintTimer = 0;
+const panKeys = new Set();
+let keyPanFrame = 0, keyPanAt = null;
+const settingDefaults = {hoverDelay:440,inkHint:true,wallpaper:true};
+let wallpaperAvailable = false;
+let preferences = {...settingDefaults};
+try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; if (typeof saved.wallpaper === 'boolean') preferences.wallpaper = saved.wallpaper; } catch { /* nonessential UI preferences */ }
+function savePreferences() { try { localStorage.setItem('caogaozhi.preferences.v1',JSON.stringify(preferences)); } catch { /* retains the choice for this session */ } }
 let wheelDelta = {x:0,y:0}, lastPointer = null, lastRightRelease = -Infinity, viewSaveTimer = 0;
 const dom = new Map(), histories = new Map(), focusMemory = new Map();
 const node = id => model.nodes.find(n => n.id === id);
@@ -195,7 +203,7 @@ function sync() {
 function openEditor(n,selection,point) {
   if (!n) return;
   if (editing?.id === n.id) { editing.controller.focus(); return; }
-  finishEdit(); closePanel(); selected = n.id; edgeId = null; source = null;
+  finishEdit(); closePanel(); clearHover(); selected = n.id; edgeId = null; source = null;
   const host = document.createElement('div'); host.className = 'editor'; host.setAttribute('aria-label','草稿文字');
   editing = {id:n.id,host,controller:null};
   render(); dom.get(n.id).insertBefore(host,dom.get(n.id).querySelector('.port'));
@@ -273,6 +281,14 @@ function selectNode(id) {
   closePanel(); render();
 }
 function selectEdge(id) { finishEdit(); selected = null; edgeId = id; closePanel(); render(); }
+function showInkHint(c,scope) {
+  const label = inks[c][1].split(' · ')[0];
+  announce(scope + '：' + label);
+  if (!preferences.inkHint) return;
+  const tip = $('ink-hint'); tip.style.setProperty('--hint-ink',inks[c][0]);
+  tip.querySelector('span').textContent = scope + ' · ' + label; tip.hidden = false;
+  clearTimeout(inkHintTimer); inkHintTimer = setTimeout(() => { tip.hidden = true; },1050);
+}
 function setInk(c) {
   if (!colors.includes(c)) return;
   breakHistoryGroup();
@@ -281,11 +297,12 @@ function setInk(c) {
     const range = editing.controller.getSelection();
     if (range.start === range.end) ink = c;
     editing.colorBefore = before;
-    editing.controller.setColor(c);
+    const recolored = editing.controller.setColor(c);
     editing.colorBefore = null;
+    if (range.start === range.end || recolored) showInkHint(c,range.start === range.end ? '下一笔' : '选中文字');
     persist(); sync(); return;
   }
-  ink = c; persist(); sync();
+  ink = c; persist(); sync(); showInkHint(c,'下一笔');
 }
 function cycleInk(direction) {
   if (editing?.controller.isComposing() || document.activeElement?.closest('input,select,dialog')) return;
@@ -293,7 +310,7 @@ function cycleInk(direction) {
   const next = colors[(colors.indexOf(current)+direction+colors.length)%colors.length];
   if (e) setEdgeAttr('color',next); else setInk(next);
 }
-function setEdgeAttr(key,value) { const e = edge(edgeId); if (!e || e[key] === value) return; const before = capture(); e[key] = value; changed(before); scheduleDraw(); }
+function setEdgeAttr(key,value) { const e = edge(edgeId); if (!e || e[key] === value) return; const before = capture(); e[key] = value; changed(before); scheduleDraw(); if (key === 'color') showInkHint(value,'连线'); }
 
 function renderTabs() {
   if (renaming) return;
@@ -313,7 +330,7 @@ function rememberFocus() {
   focusMemory.set(workspace.state.activeId,{selected,edgeId,editId:editing?.id || null,selection:editing?.controller.getSelection() || null});
 }
 function loadDocument(restoreFocus=true) {
-  loading = true; detachEditor(); applyWheelPan();
+  loading = true; stopKeyPan(); detachEditor(); clearHover(); clearGestureCursor(); applyWheelPan();
   const current = workspace.active(); model = normalize(current.model); cam = {...current.cam}; ink = current.ink;
   selected = null; edgeId = null; source = null; gesture = null; preview = null; pinch = null; space = false;
   const memory = focusMemory.get(current.id);
@@ -361,7 +378,7 @@ function renameTab(id=workspace.state.activeId) {
 
 function closePanel(restoreFocus=false) {
   const previous = panelReturn;
-  panel.hidden = true; panelType = ''; panelAnchor = panelReturn = null; sync();
+  panel.hidden = true; panelType = ''; panelAnchor = panelReturn = toolTarget = null; toolPage = ''; sync();
   if (restoreFocus) {
     const target = previous?.isConnected && !previous.closest('[hidden]') && !previous.disabled
       ? previous : dom.get(selected) || paper;
@@ -369,11 +386,17 @@ function closePanel(restoreFocus=false) {
   }
 }
 function showPanel(type,title,anchor=null,returnTo=document.activeElement) {
-  panel.replaceChildren(); panelType = type; panelAnchor = anchor;
+  stopKeyPan(); panel.replaceChildren(); panelType = type; panelAnchor = anchor;
   panelReturn = returnTo && returnTo !== document.body && !panel.contains(returnTo) ? returnTo : paper;
   panel.toggleAttribute('data-anchored',!!anchor); panel.hidden = false;
   panel.style.removeProperty('--menu-x'); panel.style.removeProperty('--menu-y'); panel.scrollTop = 0;
+  clearHover();
   const heading = document.createElement('strong'); heading.textContent = title; panel.append(heading);
+  if (toolPage && toolPage !== 'root') {
+    const back = document.createElement('button'); back.type = 'button'; back.className = 'level-back';
+    back.textContent = '‹ 返回工具'; back.setAttribute('aria-label','返回上一级工具菜单'); back.onclick = backTools;
+    panel.append(back);
+  }
   const close = document.createElement('button'); close.className = 'close'; close.textContent = '×'; close.setAttribute('aria-label','关闭菜单'); close.onclick = () => closePanel(true); panel.append(close); sync();
 }
 function placePanel() {
@@ -449,7 +472,7 @@ function openProps(anchor=null,returnTo=document.activeElement) {
     picker.onchange = () => {
       const color = picker.value; if (!colors.includes(color)) return;
       const before = capture(); n.color = color; n.runs = n.text ? [{text:n.text,color}] : []; changed(before); render();
-      picker.querySelector('option[value=""]')?.remove();
+      picker.querySelector('option[value=""]')?.remove(); showInkHint(color,'整块文字');
     };
     label.append(picker); panel.append(label);
     pbutton('删除文字',removeSelection,'Delete',false,'trash');
@@ -481,6 +504,72 @@ function openFile(anchor=null,returnTo=document.activeElement) {
   pbutton('新标签查看示例',() => addTab(example(),'示例'));
   pbutton('快捷键与操作',showHelp,'F1');
   focusMenu();
+}
+const toolGroups = {
+  draft:'草稿与标签', edit:'编辑与对象', transfer:'保存与导出', view:'画布与视野', settings:'设置'
+};
+function toggleTools() {
+  if (dialogOpen() || editing?.controller.isComposing() || renaming) return;
+  if (!panel.hidden && toolPage) { closePanel(true); return; }
+  const anchor = keyboardAnchor(), origin = document.activeElement;
+  closePanel(); finishEdit(); toolTarget = origin;
+  panelAnchor = anchor;
+  showTools('root');
+}
+function showTools(page,focusGroup) {
+  const anchor = panelAnchor, origin = toolTarget;
+  toolPage = page;
+  if (page === 'object') { openProps(anchor,origin); return; }
+  if (page === 'closed') { openClosed(); return; }
+  showPanel('tools',page === 'root' ? '工具' : toolGroups[page],anchor,origin);
+  const branch = (id,label) => {
+    const b = pbutton(label,() => showTools(id),'→'); b.dataset.menuPage = id;
+    b.setAttribute('aria-label',label+'，进入子菜单'); return b;
+  };
+  if (page === 'root') {
+    for (const [id,title] of Object.entries(toolGroups)) branch(id,title);
+    pbutton('快捷键与操作',showHelp,'F1');
+  } else if (page === 'draft') {
+    pbutton('新建草稿',() => addTab(),'Ctrl+Alt+N'); pbutton('重命名',() => renameTab(),'F2');
+    pbutton('关闭当前标签',() => closeTab(),'Ctrl+W');
+    pbutton('恢复最近关闭',() => reopenTab(),'Ctrl+Alt+T',!workspace.state.closedIds.length);
+    if (workspace.state.closedIds.length) branch('closed','查看已关闭草稿');
+  } else if (page === 'edit') {
+    const history = historyFor();
+    pbutton('撤销',() => {closePanel();undo();},'Ctrl+Z',!history.past.length);
+    pbutton('重做',() => {closePanel();redo();},'Ctrl+Y',!history.future.length);
+    if (node(selected) || edge(edgeId)) branch('object','当前对象');
+    pbutton('新建文字块',() => {closePanel();freshIdea();},'Ctrl+Enter');
+  } else if (page === 'transfer') {
+    pbutton('立即保存',() => {flush();closePanel(true);},'Ctrl+S');
+    pbutton('导出当前草稿',exportJson,'Ctrl+Shift+E');
+    pbutton('导入为新标签',() => {closePanel();$('upload').click();},'Ctrl+O');
+    pbutton('打印 / 保存 PDF',() => {closePanel();window.print();},'Ctrl+P');
+    if (window.paperDesktop) pbutton('保存截图',() => {closePanel();window.paperDesktop.saveScreenshot();},'Ctrl+Shift+S');
+  } else if (page === 'view') {
+    pbutton('显示全部',() => {closePanel(true);fit();},'Ctrl+0');
+    pbutton('放大',() => {closePanel(true);zoom(cam.z*1.15,center());},'Ctrl++');
+    pbutton('缩小',() => {closePanel(true);zoom(cam.z/1.15,center());},'Ctrl+-');
+    pbutton('新标签查看示例',() => addTab(example(),'示例'));
+  } else if (page === 'settings') {
+    const setting = (label,description,apply) => {
+      const button = pbutton(label,() => {apply();savePreferences();value.textContent = description();});
+      const value = document.createElement('kbd'); value.textContent = description(); button.append(value);
+    };
+    setting('换色提示',() => preferences.inkHint ? '开' : '关',() => { preferences.inkHint = !preferences.inkHint; if (!preferences.inkHint) $('ink-hint').hidden = true; });
+    if (wallpaperAvailable) setting('本地壁纸',() => preferences.wallpaper ? '开' : '关',() => { preferences.wallpaper = !preferences.wallpaper; paintWallpaper(); });
+    const delays = [300,440,650];
+    setting('悬停拖动等待',() => preferences.hoverDelay+' ms',() => {preferences.hoverDelay = delays[(delays.indexOf(preferences.hoverDelay)+1)%delays.length];});
+  }
+  focusMenu();
+  if (focusGroup) [...panel.querySelectorAll('[data-menu-page]')].find(b => b.dataset.menuPage === focusGroup)?.focus();
+}
+function backTools() {
+  if (!toolPage || toolPage === 'root') return false;
+  const from = toolPage;
+  if (from === 'object') { showTools('edit','object'); return true; }
+  if (from === 'closed') { showTools('draft','closed'); return true; }
+  showTools('root',from); return true;
 }
 function openClosed() {
   showPanel('closed','已关闭草稿',panelAnchor,panelReturn);
@@ -515,6 +604,21 @@ $('upload').onchange = async () => {
   catch (error) { showPanel('error','无法导入'); const text = document.createElement('p'); text.textContent = '请选用有效的草稿 JSON。'+error.message; panel.append(text); }
 };
 
+function stopKeyPan() {
+  const active = keyPanFrame || panKeys.size;
+  panKeys.clear(); if (keyPanFrame) cancelAnimationFrame(keyPanFrame);
+  keyPanFrame = 0; keyPanAt = null;
+  if (active) camera();
+}
+function stepKeyPan(time) {
+  keyPanFrame = 0;
+  if (!panKeys.size) return;
+  const has = key => Number(panKeys.has(key));
+  const dx = has('ArrowRight') - has('ArrowLeft'), dy = has('ArrowDown') - has('ArrowUp');
+  const dt = keyPanAt === null ? 17 : Math.min(33,time-keyPanAt); keyPanAt = time;
+  if (dx || dy) { cam.x += dx*dt*.52; cam.y += dy*dt*.52; camera(false); }
+  keyPanFrame = requestAnimationFrame(stepKeyPan);
+}
 function dialogOpen() { return !!document.querySelector('dialog[open]'); }
 function freshIdea() {
   const p = center(); newNote((p.x-cam.x)/cam.z,(p.y-cam.y)/cam.z,{place:true});
@@ -544,6 +648,10 @@ document.addEventListener('keydown',e => {
   }
   if (cmd && k === 's' && !e.shiftKey && !e.altKey) { e.preventDefault(); flush(); return; }
   const inPanel = !panel.hidden && panel.contains(e.target);
+  if (key === 'F19' || e.code === 'F19' || e.keyCode === 130) {
+    if (!cmd && !e.altKey) { e.preventDefault(); if (!e.repeat) toggleTools(); }
+    return;
+  }
   if ((key === 'ContextMenu' || (key === 'F10' && e.shiftKey)) && !dialogOpen() && (!field || inPanel)) {
     e.preventDefault(); if (e.repeat) return;
     if (inPanel) closePanel(true); else openProps(keyboardAnchor(),document.activeElement);
@@ -551,6 +659,10 @@ document.addEventListener('keydown',e => {
   }
   if (inPanel) {
     if (key === 'Escape') { e.preventDefault(); closePanel(true); return; }
+    if (toolPage && !cmd && !e.altKey) {
+      if (key === 'ArrowRight' && e.target.dataset.menuPage) { e.preventDefault(); e.target.click(); return; }
+      if (key === 'ArrowLeft' && !e.target.matches('input') && backTools()) { e.preventDefault(); return; }
+    }
     if (!cmd && !e.altKey && (key === 'ArrowDown' || key === 'ArrowUp')) {
       const items = menuItems();
       if (!items.length) return;
@@ -595,7 +707,12 @@ document.addEventListener('keydown',e => {
     e.preventDefault(); const dx = key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : 0, dy = key === 'ArrowUp' ? -1 : key === 'ArrowDown' ? 1 : 0;
     const n = node(selected), step = e.shiftKey ? 40 : 10;
     if (n) { const before = capture(); n.x += dx*step; n.y += dy*step; changed(before,'move:'+n.id); render(); }
-    else { cam.x += dx*step*3; cam.y += dy*step*3; camera(); }
+    else {
+      if (!panKeys.has(key)) {
+        panKeys.add(key); cam.x += dx*6; cam.y += dy*6; camera(false);
+        if (!keyPanFrame) keyPanFrame = requestAnimationFrame(stepKeyPan);
+      }
+    }
     return;
   }
   if (e.target.closest?.('.port') && (key === 'Enter' || key === ' ')) { e.preventDefault(); startLink(e.target.closest('[data-node]').dataset.node); paper.focus(); return; }
@@ -623,8 +740,12 @@ document.addEventListener('keydown',e => {
   if (key === 'Enter' && !selected && !edgeId) { e.preventDefault(); freshIdea(); }
 });
 document.addEventListener('paper-history',e => { e.preventDefault(); e.detail === 'redo' ? redo() : undo(); });
-document.addEventListener('keyup',e => { if (e.key === ' ') { space = false; sync(); } });
+document.addEventListener('keyup',e => {
+  if (e.key === ' ') { space = false; sync(); }
+  if (e.key === 'Alt' || (panKeys.delete(e.key) && !panKeys.size)) stopKeyPan();
+});
 window.paperDesktop?.onColorStep?.(direction => cycleInk(direction));
+window.paperDesktop?.onTools?.(toggleTools);
 
 function applyWheelPan() {
   if (wheelFrame) { cancelAnimationFrame(wheelFrame); wheelFrame = 0; }
@@ -640,14 +761,36 @@ function applyWheelPan() {
 paper.addEventListener('wheel',e => {
   e.preventDefault();
   const mode = e.deltaMode;
-  let dx = e.deltaX*(mode === 1 ? 18 : mode === 2 ? paper.clientWidth : 1);
-  let dy = e.deltaY*(mode === 1 ? 18 : mode === 2 ? paper.clientHeight : 1);
+  clearHover();
+  const dx = e.deltaX*(mode === 1 ? 18 : mode === 2 ? paper.clientWidth : 1);
+  const dy = e.deltaY*(mode === 1 ? 18 : mode === 2 ? paper.clientHeight : 1);
   if (e.ctrlKey || e.metaKey) { zoom(cam.z*Math.exp(-dy*.006),relative(e.clientX,e.clientY)); return; }
-  // Preserve both axes from precision trackpads; only remap a genuinely vertical mouse wheel.
-  if (e.shiftKey && dx === 0) { dx = dy; dy = 0; }
+  // Consume X and Y as supplied; never filter, swap or favor either axis in the app.
   wheelDelta.x += dx; wheelDelta.y += dy;
   if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheelPan);
 },{passive:false});
+function clearHover() {
+  if (hoverTimer) clearTimeout(hoverTimer);
+  hoverTimer = 0; hover = null;
+  if (movable) dom.get(movable)?.classList.remove('move-ready');
+  movable = null;
+}
+function noteHover(e) {
+  const target = e.target.closest('[data-node]');
+  const id = target?.dataset.node;
+  if (space || e.buttons || e.pointerType === 'touch' || !panel.hidden || !node(id) || editing?.id === id || e.target.closest('.port')) { clearHover(); return; }
+  if (movable === id) return;
+  if (hover?.id === id && Math.hypot(e.clientX-hover.x,e.clientY-hover.y) < 5) return;
+  clearHover(); hover = {id,x:e.clientX,y:e.clientY};
+  hoverTimer = setTimeout(() => {
+    hoverTimer = 0;
+    if (hover?.id !== id || gesture || !panel.hidden || editing?.id === id) return;
+    const current = document.elementFromPoint(hover.x,hover.y)?.closest('[data-node]');
+    if (current?.dataset.node !== id) { clearHover(); return; }
+    movable = id; dom.get(id)?.classList.add('move-ready');
+  },preferences.hoverDelay);
+}
+function clearGestureCursor() { delete paper.dataset.gesture; paper.classList.remove('grabbing'); }
 const points = new Map();
 function noteHit(x,y,target,allowNear=true) {
   const direct = target?.closest('[data-node]');
@@ -670,7 +813,7 @@ paper.addEventListener('pointerdown',e => {
     points.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if (points.size === 2) {
       if (gesture?.type === 'move' && gesture.moved) { gesture.n.x = gesture.ox; gesture.n.y = gesture.oy; render(); }
-      gesture = null; preview = null; scheduleDraw(); pinch = {...fingers(),cam:{...cam}}; e.preventDefault(); return;
+      gesture = null; preview = null; clearGestureCursor(); clearHover(); scheduleDraw(); pinch = {...fingers(),cam:{...cam}}; e.preventDefault(); return;
     }
     if (points.size > 1 || pinch) return;
   }
@@ -678,10 +821,10 @@ paper.addEventListener('pointerdown',e => {
   const inEditor = e.target.closest('.editor'), right = e.button === 2;
   if (right && inEditor) return; // Keep the native text menu inside editable text.
   if (right) lastRightRelease = -Infinity;
-  if (inEditor && e.button === 0 && !e.altKey && !space) return;
+  if (inEditor && e.button === 0 && !space) return;
   const lid = e.target.closest('[data-edge]')?.dataset.edge;
-  const id = noteHit(e.clientX,e.clientY,e.target,!lid);
-  const editMemory = editing ? {id:editing.id,selection:editing.controller.getSelection()} : null;
+  const id = noteHit(e.clientX,e.clientY,e.target,!lid), canMove = !!id && movable === id;
+  clearHover();
   const beforeInteraction = capture();
   const pan = !right && (e.button === 1 || space);
   if (!pan && !right && (id || e.target.closest('.port'))) finishEdit();
@@ -693,7 +836,7 @@ paper.addEventListener('pointerdown',e => {
   else if (source) gesture = {...base,type:'connectTap',nodeId:id};
   else if (id && node(id)) {
     const n = node(id);
-    gesture = e.altKey ? {...base,type:'move',n,ox:n.x,oy:n.y,before:beforeInteraction,editMemory} : {...base,type:'note',from:id};
+    gesture = canMove ? {...base,type:'move',n,ox:n.x,oy:n.y,before:beforeInteraction} : {...base,type:'note',from:id};
   }
   else if (lid) gesture = {...base,type:'edge',lid};
   else gesture = {...base,type:'blank'};
@@ -706,13 +849,14 @@ paper.addEventListener('pointermove',e => {
     const f = fingers(), z = Math.max(.2,Math.min(3,pinch.cam.z*f.dist/pinch.dist));
     cam = {z,x:f.p.x-(pinch.p.x-pinch.cam.x)*z/pinch.cam.z,y:f.p.y-(pinch.p.y-pinch.cam.y)*z/pinch.cam.z}; camera(); return;
   }
-  if (gesture?.id !== e.pointerId) return;
+  if (gesture?.id !== e.pointerId) { if (!gesture && !pinch) noteHover(e); return; }
   const g = gesture, dx = e.clientX-g.x, dy = e.clientY-g.y;
   const takingPan = g.type === 'pan';
   if (Math.hypot(dx,dy) > (e.pointerType === 'touch' ? 7 : takingPan ? 2 : 4)) g.moved = true;
   if (!g.moved) return;
-  if (g.type === 'link' || g.type === 'note') { preview = {id:g.from,...world(e.clientX,e.clientY)}; scheduleDraw(); }
+  if (g.type === 'link' || g.type === 'note') { paper.dataset.gesture = 'link'; preview = {id:g.from,...world(e.clientX,e.clientY)}; scheduleDraw(); }
   if (g.type === 'move') {
+    paper.dataset.gesture = 'move';
     g.n.x = g.ox+dx/cam.z; g.n.y = g.oy+dy/cam.z;
     if (!g.dragStarted) {
       g.dragStarted = true; selected = g.n.id; edgeId = null; render();
@@ -734,7 +878,7 @@ paper.addEventListener('pointerup',e => {
   points.delete(e.pointerId);
   if (pinch) { if (!points.size) pinch = null; return; }
   if (gesture?.id !== e.pointerId) return;
-  const g = gesture; gesture = null; paper.classList.remove('grabbing');
+  const g = gesture; gesture = null; clearGestureCursor();
   if (paper.hasPointerCapture?.(e.pointerId)) paper.releasePointerCapture(e.pointerId);
   if (g.right) lastRightRelease = performance.now();
   if (g.type === 'pan' && g.moved) {
@@ -744,7 +888,7 @@ paper.addEventListener('pointerup',e => {
   const p = world(e.clientX,e.clientY);
   if (g.type === 'blank' && !g.moved) { finishEdit(); closePanel(); newNote(p.x,p.y); }
   if (g.type === 'move') {
-    if (g.moved) { changed(g.before); selectNode(g.n.id); if (g.editMemory?.id === g.n.id) openEditor(g.n,g.editMemory.selection); else dom.get(g.n.id)?.focus({preventScroll:true}); }
+    if (g.moved) { changed(g.before); selectNode(g.n.id); dom.get(g.n.id)?.focus({preventScroll:true}); }
     else { selectNode(g.n.id); openEditor(g.n,null,{x:e.clientX,y:e.clientY}); }
   }
   if (g.type === 'edge' && !g.moved) { finishEdit(); selectEdge(g.lid); paper.focus({preventScroll:true}); }
@@ -768,9 +912,10 @@ function cancelGesture(e) {
   if (gesture.type === 'move' && gesture.moved) { gesture.n.x = gesture.ox; gesture.n.y = gesture.oy; render(); }
   if (gesture.type === 'pan' && gesture.moved) camera();
   if (gesture.right) lastRightRelease = performance.now();
-  gesture = null; preview = null; scheduleDraw(); paper.classList.remove('grabbing');
+  gesture = null; preview = null; scheduleDraw(); clearGestureCursor();
 }
 paper.addEventListener('pointercancel',cancelGesture);
+paper.addEventListener('pointerleave',clearHover);
 function showPaperContext(target,anchor) {
   const id = target.closest('[data-node]')?.dataset.node, lid = target.closest('[data-edge]')?.dataset.edge;
   if (id) { selectNode(id); openProps(anchor,dom.get(id)); }
@@ -785,7 +930,7 @@ paper.addEventListener('contextmenu',e => {
 document.addEventListener('pointerdown',e => {
   if (!panel.hidden && !e.target.closest('#panel,#file,#inspect-more,#save-error')) closePanel();
 });
-window.addEventListener('blur',() => { space = false; gesture = null; pinch = null; points.clear(); preview = null; paper.classList.remove('grabbing'); sync(); flush(); });
+window.addEventListener('blur',() => { stopKeyPan(); space = false; gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
 window.addEventListener('pagehide',flush);
 window.addEventListener('beforeunload',flush);
 document.addEventListener('visibilitychange',() => { if (document.hidden) flush(); });
@@ -797,6 +942,12 @@ window.addEventListener('beforeprint',() => {
   paper.style.setProperty('--print-w',Math.ceil((w+pad*2)*z)+'px'); paper.style.setProperty('--print-h',Math.ceil((h+pad*2)*z)+'px');
   paper.style.setProperty('--print-t','translate('+((pad-x)*z)+'px,'+((pad-y)*z)+'px) scale('+z+')');
 });
+function paintWallpaper() { $('paper-wallpaper').hidden = !wallpaperAvailable || !preferences.wallpaper; }
+window.paperDesktop?.loadWallpaper?.().then(data => {
+  if (typeof data !== 'string' || !data.startsWith('data:image/png;base64,')) return;
+  const layer = $('paper-wallpaper'); layer.style.backgroundImage = 'url(' + JSON.stringify(data) + ')';
+  wallpaperAvailable = true; paintWallpaper();
+}).catch(() => {});
 let storage, hadWorkspace = false;
 try { storage = window.localStorage; hadWorkspace = !!storage.getItem(PaperWorkspace.DEFAULT_KEY); } catch (error) { reportSaveError(error); }
 workspace = PaperWorkspace.create({storage,normalize,makeId:newId,onError:reportSaveError});
