@@ -1,522 +1,60 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>草稿纸</title>
-<meta name="description" content="一张随手写、随手连的数字草稿纸。">
-<style>
-:root {
-  font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #313536; background: #f0efea; --paper: #f9f8f4; --line: #dedbd3;
-  --muted: #696b68; --blue: #6f91b0; --frame: clamp(10px, 3vw, 42px);
-  --head: 48px; --soft: #eeede7;
-}
-* { box-sizing: border-box }
-body { margin: 0; overflow: hidden }
-button,input,select,textarea { font: inherit; color: inherit }
-button {
-  cursor: pointer; background: none; border: 1px solid transparent; border-radius: 6px;
-  min-height: 34px; padding: 4px 9px;
-}
-button:hover, button[aria-pressed=true] { background: var(--soft) }
-button:focus-visible,input:focus-visible,select:focus-visible,.note:focus-visible,.hit:focus-visible {
-  outline: 2px solid var(--blue); outline-offset: 3px;
-}
-button[disabled] { opacity: .39; cursor: default }
-.row { display: flex; align-items: center; gap: 4px }
-#surface {
-  position: fixed; inset: var(--frame); overflow: hidden; isolation: isolate;
-  border: 1px solid #cfccc3; border-radius: 15px; background: var(--paper);
-}
-header {
-  height: var(--head); display: flex; align-items: center; justify-content: space-between;
-  display: grid; grid-template-columns: 1fr auto 1fr;
-  padding: 0 17px; background: var(--paper); border-bottom: 1px solid var(--line);
-  position: relative; z-index: 3; gap: 10px;
-}
-.file-tools { justify-self: end }
-.brand { display: flex; align-items: center; gap: 13px; white-space: nowrap; min-width: 0 }
-.brand strong { font-size: 14px; font-weight: 560; letter-spacing: .05em }
-.page-icon { width: 16px; height: 18px; flex: none; color: #647582 }
-html[data-desktop] { --frame: 0px }
-html[data-desktop] #surface { border: 0; border-radius: 0 }
-html[data-desktop] .brand strong { color: #515758 }
-#date { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums }
-#fit,#file,#help { font-size: 14px; color: var(--muted) }
-#fit { min-width: 53px; font-variant-numeric: tabular-nums }
-#file { font-size: 19px; min-width: 35px; line-height: .95; padding: 4px }
-.primary { background: #e9edf0; border-color: #dbe2e7; color: #34414b }
-.primary:hover { background: #e0e8ee }
-#paper {
-  position: absolute; inset: var(--head) 0 0; overflow: hidden; touch-action: none; cursor: text;
-  background: radial-gradient(circle, #d3d0c5 .78px, transparent 1.12px) var(--gx,0px) var(--gy,0px)/26px 26px;
-}
-#paper.pan,#paper.grabbing { cursor: grab }
-#paper.grabbing { cursor: grabbing }
-#board { position: absolute; left: 0; top: 0; transform-origin: 0 0; width: 0; height: 0 }
-#links { position: absolute; width: 1px; height: 1px; overflow: visible; pointer-events: none }
-.wire { fill: none; stroke-width: 1.55; pointer-events: none }
-.hit { fill: none; stroke: transparent; stroke-width: 17; pointer-events: stroke; cursor: pointer }
-.hit:hover+.wire,.wire.chosen { stroke-width: 2.35 }
-.note {
-  position: absolute; min-height: 43px; width: 240px; padding: 7px 9px;
-  background: transparent; border: 1px solid transparent; border-radius: 7px;
-  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; line-height: 1.47;
-  cursor: grab; user-select: none; display: flex; align-items: flex-start;
-}
-.note .content { min-width: 0 }
-.note:not(.sticky):not(.editing) { width: max-content; min-width: 44px; max-width: 240px }
-.note.sticky { background: #f4edcf; border-color: #e3d8ac; border-radius: 10px }
-.note.selected { border-color: #cdd8e1; z-index: 2 }
-.note.editing { cursor: text; border-color: var(--blue); background: #fffefa; z-index: 2 }
-.note.sticky.editing { background: #f8f1d6 }
-.note textarea {
-  resize: none; border: 0; outline: 0; background: none; color: inherit; line-height: inherit;
-  font-size: inherit; width: 100%; min-height: 25px; padding: 0; margin: 0;
-  overflow: hidden; touch-action: auto;
-}
-.note .number { font-size: 12px; color: #73776d; margin: 4px 8px 0 0 }
-.port {
-  display: none; position: absolute; right: -11px; top: calc(50% - 10px);
-  height: 21px; width: 21px; min-height: 0; padding: 0; border-radius: 50%;
-  background: var(--paper); border: 1px solid #bfccd7; color: #576d7e;
-  cursor: crosshair; line-height: 17px; font-size: 16px;
-}
-.note.selected:not(.editing) .port,.note:hover:not(.editing) .port { display: block }
-.note:hover .port:hover { background: #e7edf2 }
-#empty {
-  position: absolute; left: 50%; top: 45%; transform: translate(-50%,-50%);
-  width: min(88%, 420px); text-align: center; pointer-events: none;
-  color: var(--muted); font-size: 14px;
-}
-#empty b { display: block; color: #4d4f4c; font-size: 19px; font-weight: 560; margin-bottom: 7px }
-#empty button { pointer-events: auto; margin-top: 10px; color: #616963 }
-#controls,#dock {
-  position: absolute; z-index: 3; right: 14px; bottom: max(14px, env(safe-area-inset-bottom));
-}
-#controls button { color: #575b58; border-color: #d8d6ce; background: #fffefb; font-size: 14px }
-#controls button:hover,#controls button[aria-expanded=true] { background: var(--soft) }
-#tools { display: flex; align-items: center; gap: 7px; min-height: 36px }
-#tools svg { opacity: .75 }
-#dock {
-  right: 14px; bottom: calc(max(14px, env(safe-area-inset-bottom)) + 47px);
-  display: grid; gap: 5px; padding: 6px;
-  border: 1px solid var(--line); border-radius: 10px; background: #fffefa;
-  box-shadow: 0 5px 20px #3331260b;
-}
-#dock button { padding-inline: 8px; font-size: 14px }
-#inspector { gap: 6px; min-width: 0; white-space: nowrap; margin: 0 auto }
-#inspector-name { font-size: 13px; color: var(--muted); min-width: 27px }
-#palette { gap: 1px }
-#inspector .swatch { width: 29px; height: 31px; min-height: 31px; padding: 0; display: grid; place-items: center }
-#edge-controls select {
-  appearance: none; border: 1px solid transparent; background: transparent; border-radius: 6px;
-  min-height: 31px; padding: 0 13px 0 6px; font-size: 13px; color: var(--muted);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 6'%3E%3Cpath d='m1 1 3 3 3-3' fill='none' stroke='%23747670'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 4px center; background-size: 7px 5px;
-}
-#edge-controls select:hover { border-color: var(--line); background-color: var(--soft) }
-#inspect-more { color: var(--muted); min-width: 27px; min-height: 31px; padding: 4px; font-size: 19px; line-height: 1 }
-.swatch span { width: 13px; height: 13px; border-radius: 50%; background: var(--ink) }
-.swatch[aria-pressed=true] span { outline: 1px solid var(--ink); outline-offset: 3px }
-#panel {
-  position: absolute; z-index: 4; right: 14px; top: calc(var(--head) + 8px);
-  background: #fffefa; border: 1px solid var(--line); box-shadow: 0 6px 28px #33312612;
-  padding: 12px; border-radius: 10px; display: grid; gap: 7px;
-  width: min(258px, calc(100% - 28px)); max-height: 75dvh; overflow: auto;
-}
-#panel strong { font-size: 15px; font-weight: 570 }
-#panel label { display: grid; grid-template-columns: 65px 1fr; align-items: center; gap: 6px; font-size: 14px }
-#panel select,#panel input { width: 100%; padding: 6px 4px; background: #fff; border: 1px solid #dbddd5; border-radius: 6px }
-#panel button { text-align: left }
-#panel .close { position: absolute; right: 5px; top: 4px; text-align: center }
-#status { position: absolute; left: 17px; bottom: 21px; color: var(--muted); font-size: 12px; pointer-events: none }
-#toast {
-  position: absolute; z-index: 5; left: 50%; bottom: 72px; transform: translateX(-50%);
-  background: #414a4b; color: #fff; border-radius: 7px; padding: 8px 13px;
-  font-size: 14px; pointer-events: none; width: max-content; max-width: 93%; text-align: center;
-}
-dialog {
-  border: 1px solid var(--line); border-radius: 13px; padding: 23px; background: var(--paper);
-  max-width: min(445px,94vw); line-height: 1.65; color: #313536;
-}
-dialog::backdrop { background: #282a2444 }
-dialog h2 { margin: 0 0 10px; font-size: 21px }
-dialog p { margin: 7px 0 }
-dialog form { text-align: right; margin-top: 14px }
-[hidden] { display: none!important }
-.trash { color: #9b3138 }
-@media(max-width: 650px) {
-  :root { --head: 80px; --frame: 0px }
-  #surface { border: 0; border-radius: 0 }
-  header { padding: 0 11px; grid-template-columns: 1fr auto; grid-template-rows: 43px 36px; gap: 0 }
-  #inspector { grid-column: 1 / -1; grid-row: 2; justify-self: center; padding-bottom: 2px }
-  #inspector .swatch { width: 30px }
-  .file-tools { grid-column: 2; grid-row: 1 }
-  .brand { gap: 8px }
-  #status { display: none }
-  .note { width: 208px }
-  .note:not(.sticky):not(.editing) { max-width: 208px }
-  #controls,#dock,#panel { right: 10px }
-  #tools,#controls button,#dock button { min-height: 38px }
-}
-@media print {
-  body,#surface { position: static; overflow: visible; background: white; border: 0 }
-  header,#dock,#controls,#panel,#status,#toast,#empty,.port { display: none!important }
-  #paper { position: relative; background: white; overflow: visible; inset: auto; width: var(--print-w,100%); height: var(--print-h,auto) }
-  #board { transform: var(--print-t,none)!important }
-  .note { border-color: transparent!important; print-color-adjust: exact }
-  .note.sticky,.wire { print-color-adjust: exact }
-}
-</style></head><body>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="一张随手写、随手连的数字草稿纸。">
+  <title>草稿纸</title>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
 <div id="surface">
-<header>
-  <div class="brand"><svg class="page-icon" viewBox="0 0 17 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3.1 2h6.8l3.9 3.9v12.2H3.1zM9.9 2v4.2h3.9M5.5 9.6h5.9M5.5 12.5h5.9M5.5 15.4h4.3"/></svg><strong id="bar-title">草稿纸</strong><span id="date" aria-hidden="true"></span></div>
-  <div id="inspector" class="row" role="toolbar" aria-label="当前对象属性">
-    <span id="inspector-name">笔色</span><div id="palette" class="row"></div>
-    <div id="edge-controls" class="row" hidden>
-      <select id="stroke-style" aria-label="连线线型"><option value="solid">实线</option><option value="dash">虚线</option></select>
-      <select id="stroke-arrow" aria-label="连线方向"><option value="none">无箭头</option><option value="single">单箭头</option><option value="double">双箭头</option></select>
+  <header>
+    <div class="pages">
+      <div id="tabs" role="tablist" aria-label="打开的草稿"></div>
+      <button id="new-tab" class="icon-button" aria-label="新建草稿（Ctrl+Alt+N）" title="新建草稿 · Ctrl+Alt+N">＋</button>
     </div>
-    <button id="inspect-more" aria-label="更多对象属性" aria-expanded="false" hidden>⋯</button>
-  </div>
-  <div class="row file-tools"><button id="fit" title="显示全部">100%</button><button id="file" aria-label="文件与帮助" aria-haspopup="true" aria-expanded="false">⋯</button></div>
-</header>
-<main id="paper" aria-label="草稿画布"><div id="board"><svg id="links" xmlns="http://www.w3.org/2000/svg" aria-label="连线"></svg><div id="notes"></div></div>
-  <div id="empty"><b>点一下，就开始写。</b><div>想法可以散着放，也可以连在一起。</div><button id="demo">查看示例</button></div>
-</main>
-<div id="status" role="status">保存到当前浏览器</div>
-<div id="controls"><button id="tools" aria-controls="dock" aria-expanded="false"><svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="5.3" cy="5.3" r="1.4"/><circle cx="12.7" cy="12.7" r="1.4"/><path d="M2 5.3h2m2.7 0H16M2 12.7h9.3m2.8 0H16"/></svg>工具</button></div>
-<div id="dock" role="toolbar" aria-label="笔色和画布工具" hidden>
-  <div class="row"><button id="write" title="书写" aria-pressed="true">写</button><button id="pan" title="移动画布" aria-pressed="false">移</button><button id="connect" title="点选两个文字块来连线" aria-pressed="false">连</button><button id="props" title="选中项的属性">属性</button></div>
-  <div class="row"><button id="undo" title="撤销 Ctrl/⌘ Z">撤销</button><button id="out" title="缩小" aria-label="缩小">−</button><button id="in" title="放大" aria-label="放大">＋</button><button id="help" aria-label="使用说明">帮助</button></div>
-</div>
-<aside id="panel" hidden aria-label="属性"></aside><div id="toast" role="status" hidden></div>
+    <div id="inspector" class="row" role="toolbar" aria-label="当前对象属性">
+      <span id="inspector-name">笔色</span>
+      <div id="palette" class="row"></div>
+      <div id="edge-controls" class="row" hidden>
+        <select id="stroke-style" aria-label="连线线型"><option value="solid">实线</option><option value="dash">虚线</option></select>
+        <select id="stroke-arrow" aria-label="连线方向"><option value="none">无箭头</option><option value="single">单箭头</option><option value="double">双箭头</option></select>
+      </div>
+      <button id="inspect-more" class="icon-button" aria-label="对象属性（Shift+F10）" title="对象属性 · Shift+F10" hidden>⋯</button>
+    </div>
+    <div class="row file-tools">
+      <button id="save-error" hidden aria-label="保存遇到问题，查看详情" title="保存遇到问题">!</button>
+      <button id="undo" class="icon-button" aria-label="撤销（Ctrl+Z）" title="撤销 · Ctrl+Z"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5 3 9l4 4M3 9h8a5 5 0 0 1 5 5"/></svg></button>
+      <button id="redo" class="icon-button" aria-label="重做（Ctrl+Y）" title="重做 · Ctrl+Y"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m13 5 4 4-4 4m4-4H9a5 5 0 0 0-5 5"/></svg></button>
+      <button id="fit" title="显示全部 · Ctrl+0">100%</button>
+      <button id="file" class="icon-button" aria-label="草稿与操作菜单" aria-haspopup="true" aria-expanded="false">⋯</button>
+    </div>
+  </header>
+  <main id="paper" tabindex="0" aria-label="草稿画布，点击空白输入，Tab 创建子块">
+    <div id="board"><svg id="links" xmlns="http://www.w3.org/2000/svg" aria-label="连线"></svg><div id="notes"></div></div>
+  </main>
+  <aside id="panel" hidden aria-label="操作菜单"></aside>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
 </div>
 <input id="upload" type="file" accept=".json,application/json" hidden>
-<dialog id="manual"><h2>一张可以随手写的纸</h2><p><b>写：</b>点空白开写，空块离开后会消失。双击文字可再编辑；Enter 并列，Tab 分支，Shift+Enter 换行。</p><p><b>连：</b>拖选中文字块右侧的圆点，或打开右下角「工具」，选「连」再点两个文字块。点线后，顶栏会显示线型、方向和颜色，点「⋯」可写关系标签。</p><p><b>用笔：</b>黑＝正文，红＝重点或易错，蓝＝启发或好观点，铅＝个人想法或待定。用顶栏色点或 Alt+Q/E 切换；开启大写锁定时也可按 Q/E。</p><p><b>移动：</b>拖文字块可移动；空白拖动平移，滚轮滚动画布，Ctrl/⌘＋滚轮或双指手势缩放。</p><form method="dialog"><button class="primary">开始写</button></form></dialog>
-<script>
-'use strict';
-const $=id=>document.getElementById(id), paper=$('paper'), board=$('board'), noteLayer=$('notes'), svg=$('links'), panel=$('panel');
-if(typeof location!=='undefined'&&location.protocol==='file:'&&new URLSearchParams(location.search).has('desktop')){
- document.documentElement.dataset.desktop='true';$('bar-title').textContent='当前草稿';
-}
-$('date').textContent='／ '+new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric'}).format(new Date());
-const inks={black:['#272c29','黑 · 正文'],red:['#b83a42','红 · 重点、易错'],blue:['#255f9c','蓝 · 启发、观点'],gray:['#666a6c','铅 · 想法、待定']}, colors=Object.keys(inks), stkey='caogaozhi.local.v1';
-const newId=()=>globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2);
-let model={nodes:[],edges:[]}, selected=null, edgeId=null, ink='black', mode='write', source=null, editing=null, compose=false, composeUntil=0, cam={x:0,y:0,z:1}, gesture=null, pinch=null, panelType='', history=[], toastTimer, preview=null;
-const node=id=>model.nodes.find(n=>n.id===id), edge=id=>model.edges.find(l=>l.id===id), snap=()=>JSON.stringify(model), blank=()=>({nodes:[],edges:[]});
-function normalize(raw){
- if(!raw||!Array.isArray(raw.nodes)||!Array.isArray(raw.edges)||raw.nodes.length>2000||raw.edges.length>4000)throw Error('文件结构不正确');
- const ids=new Set(), linkIds=new Set();
- const nodes=raw.nodes.map(n=>{if(!n||typeof n.id!=='string'||!n.id||ids.has(n.id)||!Number.isFinite(n.x)||!Number.isFinite(n.y)||Math.abs(n.x)>1e6||Math.abs(n.y)>1e6||typeof n.text!=='string'||n.text.length>10000)throw Error('文字块数据不正确');ids.add(n.id);return {id:n.id,x:n.x,y:n.y,text:n.text,color:colors.includes(n.color)?n.color:'black',...(n.sticky===true?{sticky:true}:{}),...(Number.isInteger(n.order)&&n.order>0&&n.order<1e7?{order:n.order}:{})};});
- const edges=raw.edges.map(e=>{if(!e||typeof e.id!=='string'||linkIds.has(e.id)||!ids.has(e.a)||!ids.has(e.b)||e.a===e.b)throw Error('连线数据不正确');linkIds.add(e.id);return {id:e.id,a:e.a,b:e.b,style:e.style==='dash'?'dash':'solid',arrow:['none','single','double'].includes(e.arrow)?e.arrow:'none',color:colors.includes(e.color)?e.color:'gray',label:typeof e.label==='string'?e.label.slice(0,80):''};});
- return {nodes,edges};
-}
-try{const saved=localStorage.getItem(stkey);if(saved)model=normalize(JSON.parse(saved));}catch{$('status').textContent='本地保存不可读，当前为新画布';}
-let saveFailed=false;
-function persist(){
- const nodes=model.nodes.filter(n=>n.text.trim()),ids=new Set(nodes.map(n=>n.id));
- try{localStorage.setItem(stkey,JSON.stringify({nodes,edges:model.edges.filter(e=>ids.has(e.a)&&ids.has(e.b))}));$('status').textContent='已保存到当前浏览器';saveFailed=false;}
- catch{$('status').textContent='本地保存不可用，请导出 JSON';if(!saveFailed){saveFailed=true;notify('本地保存不可用，请用「文件」导出 JSON');}}
-}
-function changed(before){if(before!==snap()){history.push(before);if(history.length>80)history.shift();}persist();sync();}
-function notify(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,2500);}
-function camera(){board.style.transform='translate('+cam.x+'px,'+cam.y+'px) scale('+cam.z+')';paper.style.backgroundSize=(26*cam.z)+'px '+(26*cam.z)+'px';paper.style.setProperty('--gx',cam.x+'px');paper.style.setProperty('--gy',cam.y+'px');$('fit').textContent=Math.round(cam.z*100)+'%';}
-function relative(x,y){const b=paper.getBoundingClientRect();return {x:x-b.left,y:y-b.top};}
-function world(x,y){const p=relative(x,y);return {x:(p.x-cam.x)/cam.z,y:(p.y-cam.y)/cam.z};}
-function zoom(z,p){z=Math.min(2.4,Math.max(.25,z));cam.x=p.x-(p.x-cam.x)*z/cam.z;cam.y=p.y-(p.y-cam.y)*z/cam.z;cam.z=z;camera();}
-function center(){return {x:paper.clientWidth/2,y:paper.clientHeight/2};}
-function fit(){if(!model.nodes.length){cam={x:0,y:0,z:1};camera();return;}const n=model.nodes.map(size), x=Math.min(...n.map(k=>k.x)), y=Math.min(...n.map(k=>k.y)), w=Math.max(...n.map(k=>k.x+k.w))-x,h=Math.max(...n.map(k=>k.y+k.h))-y,pad=Math.min(44,paper.clientWidth/8);cam.z=Math.max(.25,Math.min(1,(paper.clientWidth-2*pad)/Math.max(1,w),(paper.clientHeight-2*pad-64)/Math.max(1,h)));cam.x=(paper.clientWidth-w*cam.z)/2-x*cam.z;cam.y=Math.max(pad,(paper.clientHeight-h*cam.z-30)/2)-y*cam.z;camera();}
-function reveal(n){const s=size(n),pad=14,low=paper.clientHeight-98, left=n.x*cam.z+cam.x,top=n.y*cam.z+cam.y,right=left+s.w*cam.z,bottom=top+s.h*cam.z;if(right>paper.clientWidth-pad)cam.x-=right-(paper.clientWidth-pad);if(n.x*cam.z+cam.x<pad)cam.x=pad-n.x*cam.z;if(bottom>low)cam.y-=bottom-low;if(n.y*cam.z+cam.y<pad)cam.y=pad-n.y*cam.z;camera();}
-const dom=new Map();
-function size(n){const d=dom.get(n.id);return {x:n.x,y:n.y,w:d?.offsetWidth||240,h:d?.offsetHeight||52};}
-function svgEl(tag,attrs){const t=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs).forEach(([k,v])=>t.setAttribute(k,v));return t;}
-// Routing is a render-only operation: saved node coordinates and edge styles are untouched.
-function obstacle(n,pad=12){return {l:n.x-pad,r:n.x+n.w+pad,t:n.y-pad,b:n.y+n.h+pad};}
-function bounds(points){return {l:Math.min(...points.map(p=>p.x)),r:Math.max(...points.map(p=>p.x)),t:Math.min(...points.map(p=>p.y)),b:Math.max(...points.map(p=>p.y))};}
-function boxesTouch(a,b){return a.l<=b.r&&a.r>=b.l&&a.t<=b.b&&a.b>=b.t;}
-function inBox(p,r){return p.x>=r.l&&p.x<=r.r&&p.y>=r.t&&p.y<=r.b;}
-function mid(a,b){return {x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
-function curveTouches(points,rs,depth=0){
- const box=bounds(points);rs=rs.filter(r=>boxesTouch(box,r));
- if(!rs.length)return false;
- if(rs.some(r=>inBox(points[0],r)||inBox(points[3],r)))return true;
- if(depth===14||Math.max(box.r-box.l,box.b-box.t)<.25)return true;
- const [a,b,c,d]=points,ab=mid(a,b),bc=mid(b,c),cd=mid(c,d),p=mid(ab,bc),q=mid(bc,cd),m=mid(p,q);
- return curveTouches([a,ab,p,m],rs,depth+1)||curveTouches([m,q,cd,d],rs,depth+1);
-}
-function cubicAt([a,b,c,d],t){const u=1-t;return {x:u*u*u*a.x+3*u*u*t*b.x+3*u*t*t*c.x+t*t*t*d.x,y:u*u*u*a.y+3*u*u*t*b.y+3*u*t*t*c.y+t*t*t*d.y};}
-function segmentClear(a,b,rs){const box=bounds([a,b]);return !rs.some(r=>boxesTouch(box,r));}
-function segmentCross(a,b,c,d){
- const cross=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
- return cross(a,b,c)*cross(a,b,d)<0&&cross(c,d,a)*cross(c,d,b)<0;
-}
-function orthogonalRoute(start,goal,keepout,wires,initial,final,limit){
- const box=bounds([start,goal]),distance=r=>Math.max(0,r.l-box.r,box.l-r.r)+Math.max(0,r.t-box.b,box.t-r.b);
- const guides=keepout.filter(r=>distance(r)<=260).sort((a,b)=>distance(a)-distance(b)).slice(0,18);
- // Only the local guides build the search grid. Every generated segment is checked
- // against all obstacles that actually overlap the bounded search area.
- const coords=(base,keys)=>[...new Set([...base,...guides.flatMap(r=>[r[keys[0]]-1,r[keys[1]]+1])])].sort((a,b)=>a-b);
- const xs=coords([start.x,goal.x],['l','r']),ys=coords([start.y,goal.y],['t','b']);
- const area={l:xs[0],r:xs.at(-1),t:ys[0],b:ys.at(-1)};
- const rs=keepout.filter(r=>boxesTouch(area,r));
- if(rs.some(r=>inBox(start,r)||inBox(goal,r)))return null;
- const crossingWires=wires.filter(w=>boxesTouch(w.box,area)).slice(-32);
- const n=xs.length,source=ys.indexOf(start.y)*n+xs.indexOf(start.x),target=ys.indexOf(goal.y)*n+xs.indexOf(goal.x);
- const point=i=>({x:xs[i%n],y:ys[Math.floor(i/n)]}),manhattan=(a,b)=>Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
- const states=n*ys.length*2, costs=new Float64Array(states).fill(Infinity), parents=new Int32Array(states).fill(-1),heap=[];
- function push(v){
-  let i=heap.length;while(i>0){let p=(i-1)>>1;if(heap[p][0]<=v[0])break;heap[i]=heap[p];i=p;}heap[i]=v;
- }
- function pop(){
-  const root=heap[0],last=heap.pop();if(!heap.length)return root;
-  let i=0;while(i*2+1<heap.length){let j=i*2+1;if(j+1<heap.length&&heap[j+1][0]<heap[j][0])j++;if(heap[j][0]>=last[0])break;heap[i]=heap[j];i=j;}heap[i]=last;return root;
- }
- const first=source*2+initial;
- costs[first]=0;push([manhattan(start,goal),0,first]);
- const bend=33;
- let end=-1,best=Infinity,expansions=0;
- while(heap.length&&expansions++<limit){
-  const [rank,g,k]=pop();if(rank>=best)break;if(g!==costs[k])continue;
-  const i=k>>1,dir=k&1;
-  if(i===target){const score=g+(dir===final?0:bend);if(score<best){end=k;best=score;}continue;}
-  const p=point(i),col=i%n,row=Math.floor(i/n);
-  const neighbors=[[col>0?i-1:-1,0],[col+1<n?i+1:-1,0],[row>0?i-n:-1,1],[row+1<ys.length?i+n:-1,1]];
-  for(const [j,nextDir] of neighbors){
-   if(j<0)continue;
-   const q=point(j);if(!segmentClear(p,q,rs))continue;
-   let intersections=0;
-   const span=bounds([p,q]);
-   for(const w of crossingWires){if(!boxesTouch(w.box,span))continue;for(let x=1;x<w.points.length;x++)if(segmentCross(p,q,w.points[x-1],w.points[x]))intersections++;}
-   const nk=j*2+nextDir,ng=g+manhattan(p,q)+(dir===nextDir?0:bend)+intersections*30;
-   if(ng>=costs[nk])continue;
-   costs[nk]=ng;parents[nk]=k;push([ng+manhattan(q,goal),ng,nk]);
-  }
- }
- if(end<0)return null;
- const result=[];
- for(let i=end;i>=0;i=parents[i])result.push(point(i>>1));
- return result.reverse();
-}
-function roundedRoute(points,keepout){
- const way=[];
- for(const p of points){
-  if(way.length&&p.x===way.at(-1).x&&p.y===way.at(-1).y)continue;
-  if(way.length>1){const a=way.at(-2),b=way.at(-1);
-   if((a.x===b.x&&b.x===p.x&&(b.y-a.y)*(p.y-b.y)>0)||(a.y===b.y&&b.y===p.y&&(b.x-a.x)*(p.x-b.x)>0))way.pop();
-  }
-  way.push(p);
- }
- let path='M'+way[0].x+' '+way[0].y;
- const toward=(a,b,d)=>{const f=d/Math.hypot(b.x-a.x,b.y-a.y);return {x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f};};
- for(let i=1;i<way.length-1;i++){
-  const a=way[i-1],p=way[i],b=way[i+1];
-  let r=Math.min(12,Math.hypot(a.x-p.x,a.y-p.y)/2,Math.hypot(b.x-p.x,b.y-p.y)/2);
-  let f,g;
-  while(r>=1){f=toward(p,a,r);g=toward(p,b,r);if(!keepout.some(o=>boxesTouch(bounds([f,p,g]),o)))break;r/=2;}
-  path+=r<1?' L'+p.x+' '+p.y:' L'+f.x+' '+f.y+' Q'+p.x+' '+p.y+' '+g.x+' '+g.y;
- }
- const end=way.at(-1);path+=' L'+end.x+' '+end.y;
- const lengths=way.slice(1).map((b,i)=>Math.hypot(b.x-way[i].x,b.y-way[i].y));
- let half=lengths.reduce((a,b)=>a+b,0)/2, label=way[0];
- for(let i=0;i<lengths.length;i++){if(half<=lengths[i]){label=toward(way[i],way[i+1],half);break;}half-=lengths[i];}
- return {path,points:way,label};
-}
-function edgeGeometry(A,B,others,previous,allowRoute=true){
- const ac={x:A.x+A.w/2,y:A.y+A.h/2},bc={x:B.x+B.w/2,y:B.y+B.h/2};
- const side=(a,b,s)=>Math.abs((b.x-a.x)/s.w)>=Math.abs((b.y-a.y)/s.h)?{x:Math.sign(b.x-a.x)||1,y:0}:{x:0,y:Math.sign(b.y-a.y)||1};
- const u=side(ac,bc,A),v=side(bc,ac,B),p={x:ac.x+u.x*(A.w/2+3),y:ac.y+u.y*(A.h/2+3)},q={x:bc.x+v.x*(B.w/2+3),y:bc.y+v.y*(B.h/2+3)},pull=Math.min(110,Math.max(23,Math.hypot(q.x-p.x,q.y-p.y)*.45)), c={x:p.x+u.x*pull,y:p.y+u.y*pull},d={x:q.x+v.x*pull,y:q.y+v.y*pull};
- const cubic=[p,c,d,q],original='M'+p.x+' '+p.y+' C'+c.x+' '+c.y+' '+d.x+' '+d.y+' '+q.x+' '+q.y;
- const unchanged=(attempted=false)=>({path:original,label:cubicAt(cubic,.5),points:Array.from({length:9},(_,i)=>cubicAt(cubic,i/8)),attempted,routed:false});
- if(!allowRoute||!curveTouches(cubic,others))return unchanged();
- const a=obstacle(A,1),b=obstacle(B,1),keepout=[...others,a,b],stub=(p,s,k)=>({x:p.x+s.x*k,y:p.y+s.y*k});
- // Start with the original attachment; if the short exit itself is blocked,
- // try other sides rather than routing through the source or destination note.
- const sides=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}],axis=s=>s.x?0:1;
- function ports(center,n,preferred){
-  return [preferred,...sides.filter(s=>s.x!==preferred.x||s.y!==preferred.y)].map(s=>{
-   const p={x:center.x+s.x*(n.w/2+3),y:center.y+s.y*(n.h/2+3)};
-   return {p,s,exit:stub(p,s,8)};
-  });
- }
- const sources=ports(ac,A,u),targets=ports(bc,B,v);
- for(const i of [0,1,2,3])for(const j of [0,1,2,3]){
-  const f=sources[i],g=targets[j];
-  if(!segmentClear(f.p,f.exit,keepout)||!segmentClear(g.p,g.exit,keepout))continue;
-  const route=orthogonalRoute(f.exit,g.exit,keepout,previous,axis(f.s),axis(g.s),i||j?500:1800);
-  if(route)return {...roundedRoute([f.p,...route,g.p],keepout),attempted:true,routed:true};
- }
- return unchanged(true);
-}
-function draw(){
- const defs=svgEl('defs',{});for(const [k,[c]] of Object.entries(inks)){let marker=svgEl('marker',{id:'arrow-'+k,viewBox:'0 0 12 10',refX:10,refY:5,markerWidth:8,markerHeight:7,orient:'auto-start-reverse'});marker.append(svgEl('path',{d:'M1 1 L10 5 1 9',stroke:c,'stroke-width':1.5,fill:'none'}));defs.append(marker);}
- svg.replaceChildren(defs);
- const nodes=new Map(model.nodes.map(n=>[n.id,size(n)]));
- const blockers=[...nodes].map(([id,rect])=>({id,...obstacle(rect)}));
- const wires=[];let attemptedRoutes=0;
- for(const e of model.edges){
-  const A=nodes.get(e.a),B=nodes.get(e.b);if(!A||!B)continue;
-  const allowed=attemptedRoutes<28;
-  const rs=allowed?blockers.filter(r=>r.id!==e.a&&r.id!==e.b):[];
-  const {path,label,points,attempted}=edgeGeometry(A,B,rs,wires,allowed);
-  if(attempted)attemptedRoutes++;
-  wires.push({points,box:bounds(points)});
-  const hit=svgEl('path',{d:path,class:'hit','data-edge':e.id,tabindex:0,role:'button','aria-label':'选择连线'+(e.label?'：'+e.label:'')});const wire=svgEl('path',{d:path,class:'wire'+(e.id===edgeId?' chosen':''),stroke:inks[e.color][0]});
-  if(e.style==='dash')wire.setAttribute('stroke-dasharray','6 5');if(e.arrow!=='none')wire.setAttribute('marker-end','url(#arrow-'+e.color+')');if(e.arrow==='double')wire.setAttribute('marker-start','url(#arrow-'+e.color+')');
-  svg.append(hit,wire);
-  if(e.label){const t=svgEl('text',{x:label.x,y:label.y-7,'text-anchor':'middle',fill:inks[e.color][0],stroke:'#f9f8f4','stroke-width':5,'paint-order':'stroke','font-size':12});t.textContent=e.label;svg.append(t);}
- }
- if(preview){const a=node(preview.id);if(a){const s=size(a),x=s.x+s.w,y=s.y+s.h/2;svg.append(svgEl('path',{d:'M'+x+' '+y+' Q'+((x+preview.x)/2)+' '+y+' '+preview.x+' '+preview.y,class:'wire',stroke:'#527362','stroke-dasharray':'5 4'}));}}
-}
-function makeNote(n){
- const d=document.createElement('div');d.className='note';d.dataset.node=n.id;d.tabIndex=0;d.setAttribute('role','group');
- const number=document.createElement('span');number.className='number';
- const content=document.createElement('span');content.className='content';
- const port=document.createElement('button');port.className='port';port.type='button';port.textContent='+';port.title='拖动连线';port.setAttribute('aria-label','从此处连线');d.append(number,content,port);
- noteLayer.append(d);dom.set(n.id,d);return d;
-}
-function render(){
- for(const [id,d] of dom){if(!node(id)){d.remove();dom.delete(id);}}
- for(const n of model.nodes){const d=dom.get(n.id)||makeNote(n),ed=editing?.id===n.id;d.style.left=n.x+'px';d.style.top=n.y+'px';d.style.color=inks[n.color][0];d.classList.toggle('selected',selected===n.id||source===n.id);d.classList.toggle('editing',ed);d.classList.toggle('sticky',n.sticky===true);d.querySelector('.number').hidden=!n.order;d.querySelector('.number').textContent=n.order?n.order+'.':'';const el=d.querySelector('.content');el.hidden=ed;if(!ed)el.textContent=n.text;d.setAttribute('aria-label',n.text||'新文字块');}
- $('empty').hidden=!!model.nodes.length;draw();sync();
-}
-function sync(){
- $('undo').disabled=!history.length;
- $('props').disabled=!selected&&!edgeId;
- for(const key of ['write','pan','connect'])$(key).setAttribute('aria-pressed',String(mode===key));paper.classList.toggle('pan',mode==='pan'||space);
- const e=edge(edgeId), n=node(selected), active=e?.color||n?.color||ink;
- $('inspector-name').textContent=e?'连线':editing?'输入':n?'文字':'笔色';
- $('edge-controls').hidden=!e;
- if(e){$('stroke-style').value=e.style;$('stroke-arrow').value=e.arrow;}
- $('inspect-more').hidden=!e&&!n;$('inspect-more').setAttribute('aria-expanded',String(panelType==='props'&&!panel.hidden));
- for(const b of $('palette').children){
-  const label=e?(inks[b.dataset.ink][1].split(' · ')[0]+'色连线'):inks[b.dataset.ink][1];
-  b.setAttribute('aria-label',label);b.title=label;b.setAttribute('aria-pressed',String(b.dataset.ink===active));
- }
- $('file').setAttribute('aria-expanded',String(panelType==='file'&&!panel.hidden));
-}
-function openEditor(n,before=snap()){
- editing={id:n.id,before};selected=n.id;edgeId=null;compose=false;composeUntil=0;render();
- const d=dom.get(n.id),t=document.createElement('textarea');t.rows=1;t.maxLength=10000;t.value=n.text;t.setAttribute('aria-label','在此写下想法');t.placeholder='写在这里…';d.insertBefore(t,d.querySelector('.port'));
- const resize=()=>{t.style.height='auto';t.style.height=Math.max(29,t.scrollHeight)+'px';draw();};resize();t.focus({preventScroll:true});t.setSelectionRange(t.value.length,t.value.length);reveal(n);
- t.addEventListener('input',event=>{n.text=t.value;resize();if(!compose&&!event.isComposing)persist();});
- t.addEventListener('compositionstart',()=>{compose=true;});t.addEventListener('compositionend',()=>{compose=false;composeUntil=performance.now()+55;n.text=t.value;persist();});
- t.addEventListener('blur',()=>{if(editing?.id===n.id)finishEdit();});
-}
-function finishEdit(){
- if(!editing)return;const {id,before}=editing,n=node(id),t=dom.get(id)?.querySelector('textarea');editing=null;compose=false;
- if(n&&t)n.text=t.value.trimEnd();t?.remove();
- if(n&&!n.text.trim()){model.nodes=model.nodes.filter(k=>k.id!==id);model.edges=model.edges.filter(e=>e.a!==id&&e.b!==id);if(selected===id)selected=null;}
- changed(before);render();
-}
-function newNote(x,y,{parent=null,arrow='none',order=null}={}){
- finishEdit();const before=snap(),n={id:newId(),x:Math.round(x),y:Math.round(y),text:'',color:ink,...(order?{order}:{})};model.nodes.push(n);if(parent&&node(parent)&&parent!==n.id)createEdge(parent,n.id,arrow);openEditor(n,before);
-}
-function createEdge(a,b,arrow='none'){if(a===b||model.edges.some(e=>e.a===a&&e.b===b||e.arrow==='none'&&e.a===b&&e.b===a))return null;const e={id:newId(),a,b,style:'solid',arrow,color:'gray',label:''};model.edges.push(e);return e;}
-function selectNode(id){if(editing?.id!==id)finishEdit();selected=id;edgeId=null;if(node(id))ink=node(id).color;closePanel();render();}
-function selectEdge(id,properties=false){finishEdit();selected=null;edgeId=id;render();if(properties)openProps();}
-function setInk(c){if(!colors.includes(c))return;ink=c;const n=node(selected);if(n&&n.color!==c){const before=snap();n.color=c;if(!editing)changed(before);else persist();render();}else sync();}
-for(const [k,[c,label]] of Object.entries(inks)){const b=document.createElement('button');b.className='swatch';b.dataset.ink=k;b.style.setProperty('--ink',c);b.title=label;b.setAttribute('aria-label',label);b.innerHTML='<span aria-hidden="true"></span>';b.addEventListener('pointerdown',e=>e.preventDefault());b.onclick=()=>edge(edgeId)?setEdgeAttr('color',k):setInk(k);$('palette').append(b);}
-function setEdgeAttr(k,v){const e=edge(edgeId);if(!e||e[k]===v)return;const before=snap();e[k]=v;changed(before);draw();}
-$('stroke-style').onchange=()=>setEdgeAttr('style',$('stroke-style').value);
-$('stroke-arrow').onchange=()=>setEdgeAttr('arrow',$('stroke-arrow').value);
-$('inspect-more').onclick=()=>panelType==='props'?closePanel():openProps();
-function setTools(open){$('dock').hidden=!open;$('tools').setAttribute('aria-expanded',String(open));}
-$('tools').addEventListener('pointerdown',e=>e.preventDefault());
-$('tools').onclick=()=>setTools($('dock').hidden);
-function closePanel(){panel.hidden=true;panelType='';sync();}
-function showPanel(name,title){panel.replaceChildren();panelType=name;panel.hidden=false;const h=document.createElement('strong');h.textContent=title;panel.append(h);const b=document.createElement('button');b.className='close';b.textContent='×';b.setAttribute('aria-label','关闭菜单');b.onclick=closePanel;panel.append(b);sync();}
-function pbutton(name,fn,klass=''){const b=document.createElement('button');b.textContent=name;b.className=klass;b.onclick=fn;panel.append(b);}
-function removeSelection(){finishEdit();const before=snap();if(edgeId){model.edges=model.edges.filter(e=>e.id!==edgeId);edgeId=null;}else if(selected){model.nodes=model.nodes.filter(n=>n.id!==selected);model.edges=model.edges.filter(e=>e.a!==selected&&e.b!==selected);selected=null;}changed(before);closePanel();render();}
-function openProps(){
- finishEdit();const e=edge(edgeId),n=node(selected);if(!e&&!n)return;showPanel('props',e?'连线属性':'文字块属性');
- if(e){
-  const l=document.createElement('label');l.textContent='关系';const input=document.createElement('input');input.maxLength=80;input.placeholder='可不填';input.value=e.label;input.onchange=()=>setEdgeAttr('label',input.value.trim());l.append(input);panel.append(l);pbutton('删除连线',removeSelection,'trash');
- }else{pbutton('编辑文字',()=>{closePanel();openEditor(n);});pbutton(n.sticky?'取消便签底色':'添加便签底色',()=>{const before=snap();if(n.sticky)delete n.sticky;else n.sticky=true;changed(before);render();openProps();});pbutton('以此为起点连线',()=>{source=n.id;setMode('connect',true);closePanel();});pbutton('删除文字块',removeSelection,'trash');}
-}
-function setMode(k,keep=false){finishEdit();mode=k;if(!keep)source=null;closePanel();render();if(k==='connect')notify(source?'点选目标文字块或空白处':'点一个文字块作为起点');}
-for(const k of ['write','pan','connect'])$(k).onclick=()=>setMode(k);
-$('props').onclick=()=>panelType==='props'?closePanel():openProps();
-$('help').onclick=()=>{finishEdit();closePanel();$('manual').showModal();};
-function exportJson(){finishEdit();const b=new Blob([JSON.stringify({version:1,...model},null,2)],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='草稿纸.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),500);closePanel();}
-function newPaper(next=blank()){finishEdit();const before=snap();model=next;selected=null;edgeId=null;source=null;changed(before);closePanel();render();fit();}
-function example(){
- const list=[['怎么让草稿不打断思路？\n先记下念头，再决定结构。','black',0,0],['写下就走\n不必先找分类。','black',300,48],['回头看一眼\n哪些想法能连在一起？','black',8,143],['突然想到\n纸上的箭头，能不能保留下来？','black',286,166,true],['另一个念头：给未定的想法留空。','gray',8,258]];
- const nodes=list.map(([text,color,x,y,sticky])=>({id:newId(),text,color,x,y,...(sticky?{sticky:true}:{})}));const edges=[[0,1,'single','solid','gray',''],[0,2,'single','solid','gray',''],[2,3,'none','dash','gray','']].map(([a,b,arrow,style,color,label])=>({id:newId(),a:nodes[a].id,b:nodes[b].id,arrow,style,color,label}));return {nodes,edges};
-}
-$('demo').onclick=()=>{if(!model.nodes.length)newPaper(example());};
-$('file').onclick=()=>{if(panelType==='file'){closePanel();return;}finishEdit();showPanel('file','草稿文件');pbutton('导出 JSON',exportJson);pbutton('导入 JSON',()=>{$('upload').click();});pbutton('打印 / 保存为 PDF',()=>{closePanel();window.print();});if(window.paperDesktop)pbutton('保存截图',async()=>{closePanel();if(await window.paperDesktop.saveScreenshot())notify('截图已保存');});pbutton('载入示例',()=>{if(!model.nodes.length||confirm('用示例替换当前草稿？可以撤销，也可先导出。'))newPaper(example());});pbutton('新建空白草稿',()=>{if(!model.nodes.length||confirm('清空当前草稿？可以撤销，也可先导出。'))newPaper();});pbutton('使用说明',()=>$('help').onclick());};
-$('upload').onchange=async()=>{const f=$('upload').files[0];$('upload').value='';if(!f)return;try{if(f.size>8*1024*1024)throw Error('文件超过 8 MB');const next=normalize(JSON.parse(await f.text()));if(!model.nodes.length||confirm('用导入内容替换当前草稿？可以撤销，也可先导出。')){newPaper(next);notify('已导入草稿');}}catch{notify('无法导入：请选择有效的草稿 JSON');}};
-function undo(){finishEdit();if(!history.length)return;model=JSON.parse(history.pop());selected=null;edgeId=null;source=null;persist();closePanel();render();}
-$('undo').onclick=undo;
-$('in').onclick=()=>zoom(cam.z*1.2,center());$('out').onclick=()=>zoom(cam.z/1.2,center());$('fit').onclick=fit;
-let space=false,lastTap=null;
-document.addEventListener('keydown',e=>{
- if(e.isComposing||e.keyCode===229||compose||performance.now()<composeUntil)return;
- const k=e.key.toLowerCase(),alt=e.altKey&&!e.ctrlKey&&!e.metaKey,caps=e.getModifierState?.('CapsLock')&&!e.ctrlKey&&!e.metaKey&&!e.altKey;
- if((k==='q'||k==='e')&&(alt||caps)&&!e.target.closest('input,select,dialog')){e.preventDefault();const line=edge(edgeId),c=colors[(colors.indexOf(line?.color||ink)+(k==='q'?3:1))%4];if(line)setEdgeAttr('color',c);else setInk(c);return;}
- if(e.target.tagName==='TEXTAREA'&&editing){
-  if(e.key==='Escape'){e.preventDefault();finishEdit();return;}
-  if((e.key==='Enter'||e.key==='Tab')&&!e.shiftKey&&!e.ctrlKey&&!e.altKey&&!e.metaKey){
-   const n=node(editing.id),t=e.target,s=size(n);if(!t.value.trim()){if(e.key==='Enter'){e.preventDefault();finishEdit();}return;}
-   e.preventDefault();let order=n.order? n.order+1:null;const num=/^(\d+)\.\s+(\S[\s\S]*)$/.exec(t.value);if(num&&e.key==='Enter'&&Number(num[1])>0&&Number(num[1])<9999999){const original=Number(num[1]);n.order=original;order=original+1;t.value=num[2];}
-   if(e.key==='Tab')newNote(n.x+s.w+66,n.y,{parent:n.id,arrow:'single'});else newNote(n.x,n.y+s.h+18,{order});return;
-  }
-  return;
- }
- if(e.target.closest('input,select,textarea,dialog'))return;
- if(e.key===' '&&!e.target.closest('button')){e.preventDefault();space=true;sync();}
- if((e.ctrlKey||e.metaKey)&&k==='z'&&!e.shiftKey){e.preventDefault();undo();}
- if(e.key==='Escape'){finishEdit();selected=null;edgeId=null;source=null;closePanel();setTools(false);render();}
- if(e.key==='Delete'&&(selected||edgeId)&&!e.target.closest('button')){e.preventDefault();removeSelection();}
- if(e.key==='Enter'&&e.target.dataset.edge){e.preventDefault();selectEdge(e.target.dataset.edge);$('stroke-style').focus();}
- if(e.key==='Enter'&&e.target.dataset.node){e.preventDefault();openEditor(node(e.target.dataset.node));}
-});
-document.addEventListener('keyup',e=>{if(e.key===' '){space=false;sync();}});window.addEventListener('blur',()=>{space=false;sync();});
-paper.addEventListener('wheel',e=>{e.preventDefault();if(e.ctrlKey||e.metaKey)zoom(cam.z*Math.exp(-e.deltaY*.004),relative(e.clientX,e.clientY));else{cam.x-=(e.shiftKey?e.deltaY:e.deltaX);if(!e.shiftKey)cam.y-=e.deltaY;camera();}},{passive:false});
-const points=new Map();
-const fingers=()=>{const [a,b]=points.values();return {p:relative((a.x+b.x)/2,(a.y+b.y)/2),dist:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))};};
-paper.addEventListener('pointerdown',e=>{
- if(e.target.closest('button:not(.port)'))return;
- if(e.target.closest('textarea')&&e.pointerType!=='touch')return;
- if(e.pointerType==='touch'){points.set(e.pointerId,{x:e.clientX,y:e.clientY});if(points.size===2){if(gesture?.type==='move'&&gesture.moved){gesture.n.x=gesture.ox;gesture.n.y=gesture.oy;render();}gesture=null;preview=null;draw();pinch={...fingers(),cam:{...cam}};return;}if(points.size>1||pinch)return;if(e.target.closest('textarea'))return;}
- if(e.button!==0&&e.button!==1)return;
- if(editing&&!e.target.closest('textarea'))finishEdit();
- const id=e.target.closest('[data-node]')?.dataset.node,lid=e.target.closest('[data-edge]')?.dataset.edge;
- const base={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,cx:cam.x,cy:cam.y};
- if(e.button===1||mode==='pan'||space)gesture={...base,type:'pan'};
- else if(e.target.closest('.port')&&node(id)){e.preventDefault();gesture={...base,type:'link',from:id};}
- else if(mode==='connect')gesture={...base,type:'connectTap',nodeId:id};
- else if(id&&node(id)){const n=node(id);gesture={...base,type:'move',n,ox:n.x,oy:n.y,before:snap()};}
- else if(lid)gesture={...base,type:'edge',lid};
- else gesture={...base,type:'blank'};
- if(gesture.type!=='edge')paper.setPointerCapture?.(e.pointerId);
-});
-paper.addEventListener('pointermove',e=>{
- if(points.has(e.pointerId))points.set(e.pointerId,{x:e.clientX,y:e.clientY});
- if(pinch&&points.size>=2){const f=fingers();const z=Math.max(.25,Math.min(2.4,pinch.cam.z*f.dist/pinch.dist));cam={z,x:f.p.x-(pinch.p.x-pinch.cam.x)*z/pinch.cam.z,y:f.p.y-(pinch.p.y-pinch.cam.y)*z/pinch.cam.z};camera();return;}
- if(gesture?.id!==e.pointerId)return;const g=gesture,dx=e.clientX-g.x,dy=e.clientY-g.y;if(Math.hypot(dx,dy)>5)g.moved=true;if(!g.moved)return;
- if(g.type==='link'){preview={id:g.from,...world(e.clientX,e.clientY)};draw();}
- if(g.type==='move'){g.n.x=Math.round(g.ox+dx/cam.z);g.n.y=Math.round(g.oy+dy/cam.z);render();}
- if(g.type==='pan'||g.type==='blank'){cam.x=g.cx+dx;cam.y=g.cy+dy;camera();paper.classList.add('grabbing');}
-});
-function tapConnect(id,p){if(!source){if(id){source=id;selected=id;edgeId=null;render();notify('点选目标文字块或空白处');}return;}
- if(id&&source===id){source=null;render();return;}
- if(id){const before=snap(),created=createEdge(source,id);source=null;mode='write';changed(before);if(created)selectEdge(created.id);else {render();notify('这两块已经连线');}}
- else{const pId=source;source=null;mode='write';newNote(p.x,p.y,{parent:pId});}
-}
-paper.addEventListener('pointerup',e=>{
- points.delete(e.pointerId);if(pinch){if(!points.size)pinch=null;return;}if(gesture?.id!==e.pointerId)return;
- const g=gesture;gesture=null;paper.classList.remove('grabbing');const p=world(e.clientX,e.clientY);
- if(g.type==='blank'&&!g.moved){closePanel();setTools(false);newNote(p.x,p.y);}
- if(g.type==='move'){if(g.moved){changed(g.before);selectNode(g.n.id);}else{const now=performance.now();const again=lastTap?.id===g.n.id&&now-lastTap?.at<340;selectNode(g.n.id);if(again){openEditor(g.n);lastTap=null;}else lastTap={id:g.n.id,at:now};}}
- if(g.type==='edge'&&!g.moved){closePanel();selectEdge(g.lid);}
- if(g.type==='connectTap'&&!g.moved)tapConnect(g.nodeId,p);
- if(g.type==='link'){preview=null;if(g.moved){const id=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-node]')?.dataset.node;if(id&&id!==g.from){const before=snap(),l=createEdge(g.from,id);changed(before);if(l)selectEdge(l.id);else draw();}else if(!id&&e.clientY>=paper.getBoundingClientRect().top&&e.clientY<=paper.getBoundingClientRect().bottom)newNote(p.x,p.y,{parent:g.from});else draw();}else{source=g.from;setMode('connect',true);} }
-});
-paper.addEventListener('pointercancel',e=>{points.delete(e.pointerId);if(!points.size)pinch=null;if(gesture?.id!==e.pointerId)return;if(gesture.type==='move'&&gesture.moved){gesture.n.x=gesture.ox;gesture.n.y=gesture.oy;render();}gesture=null;preview=null;draw();paper.classList.remove('grabbing');});
-paper.addEventListener('contextmenu',e=>{const id=e.target.closest('[data-node]')?.dataset.node,lid=e.target.closest('[data-edge]')?.dataset.edge;if(!id&&!lid||e.target.closest('textarea'))return;e.preventDefault();if(id){selectNode(id);openProps();}else selectEdge(lid,true);});
-window.addEventListener('beforeprint',()=>{
- finishEdit();if(!model.nodes.length)return;const bounds=model.nodes.map(size),x=Math.min(...bounds.map(r=>r.x)),y=Math.min(...bounds.map(r=>r.y)),w=Math.max(...bounds.map(r=>r.x+r.w))-x,h=Math.max(...bounds.map(r=>r.y+r.h))-y,pad=30,z=Math.min(1,550/(w+pad*2),720/(h+pad*2));
- paper.style.setProperty('--print-w',Math.ceil((w+pad*2)*z)+'px');paper.style.setProperty('--print-h',Math.ceil((h+pad*2)*z)+'px');paper.style.setProperty('--print-t','translate('+((pad-x)*z)+'px,'+((pad-y)*z)+'px) scale('+z+')');
-});
-window.addEventListener('resize',draw);
-render();if(model.nodes.length)fit();else camera();
-</script></body></html>
+<dialog id="manual">
+  <h2>随手写，随手连</h2>
+  <dl>
+    <dt>书写</dt><dd>单击空白落笔，空块离开即释放；点击文字继续编辑，拖动文字可自由移动。</dd>
+    <dt>生长</dt><dd>Tab 创建子块，可连续深入；Enter 新建同级，Shift+Enter 在块内换行。Ctrl+Enter 记一个独立想法。</dd>
+    <dt>用色</dt><dd>F17 向左、F18 向右循环黑、红、蓝、灰。选中文字改选区，未选中时改下一笔；选中连线时改线色。</dd>
+    <dt>移动</dt><dd>触控板双指自由平移、捏合缩放。鼠标拖空白或按中键拖动；滚轮上下，Shift+滚轮左右，Ctrl+滚轮以指针为中心缩放。编辑文字时 Alt+拖动可移动该文字块。</dd>
+    <dt>撤回</dt><dd>Ctrl+Z 撤销；Ctrl+Y / Ctrl+Shift+Z 重做。Ctrl+S 立即保存，平时自动保存。</dd>
+    <dt>草稿</dt><dd>Ctrl+Alt+N 新建标签；Ctrl+PageUp / PageDown 切换；F2 改名；Ctrl+Alt+T 恢复最近关闭。关闭标签保留草稿。</dd>
+    <dt>连线</dt><dd>拖动文字旁的连接点，或 Shift+F10 打开对象操作，再选择起点和终点；线的方向、线型和颜色在顶栏调整。</dd>
+    <dt>视野</dt><dd>Ctrl+0 显示全部；Ctrl+＋ / －缩放；Alt+方向键移动选中块，无选中时平移画布。</dd>
+  </dl>
+  <form method="dialog"><button class="primary">继续写</button></form>
+</dialog>
+<script src="./workspace.js"></script>
+<script src="./editor.js"></script>
+<script src="./routing.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

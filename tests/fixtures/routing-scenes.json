@@ -1,0 +1,910 @@
+{
+  "version": 1,
+  "note": "全部为虚构的排线评审场景，不含用户私人笔记。位置是评审基准；截图只调整相机，不自动移动文字。",
+  "viewport": {
+    "width": 1280,
+    "height": 820
+  },
+  "scenes": [
+    {
+      "id": "branching",
+      "title": "主题学习 · 多层分支",
+      "description": "以一个学习目标连续分成问题、材料与实践，再细化到可执行的小步骤。主要检验树形分支的展开、同侧入边和跨层连线的舒展程度。",
+      "model": {
+        "nodes": [
+          {
+            "id": "tree-root",
+            "text": "学会一个新主题\n先建立可用的理解",
+            "color": "black",
+            "x": 40,
+            "y": 300
+          },
+          {
+            "id": "tree-goal",
+            "text": "我想解决什么？",
+            "color": "black",
+            "x": 330,
+            "y": 80,
+            "parentId": "tree-root"
+          },
+          {
+            "id": "tree-materials",
+            "text": "先看哪些材料？",
+            "color": "black",
+            "x": 330,
+            "y": 300,
+            "parentId": "tree-root"
+          },
+          {
+            "id": "tree-practice",
+            "text": "怎样确认真的懂？",
+            "color": "black",
+            "x": 330,
+            "y": 520,
+            "parentId": "tree-root"
+          },
+          {
+            "id": "tree-question",
+            "text": "把大问题改成小问题",
+            "color": "black",
+            "x": 650,
+            "y": 35,
+            "parentId": "tree-goal"
+          },
+          {
+            "id": "tree-result",
+            "text": "找一个可观察的结果",
+            "color": "black",
+            "x": 650,
+            "y": 110,
+            "parentId": "tree-goal"
+          },
+          {
+            "id": "tree-overview",
+            "text": "先读一篇概览",
+            "color": "black",
+            "x": 650,
+            "y": 235,
+            "parentId": "tree-materials"
+          },
+          {
+            "id": "tree-perspectives",
+            "text": "再找两种不同观点",
+            "color": "black",
+            "x": 650,
+            "y": 310,
+            "parentId": "tree-materials"
+          },
+          {
+            "id": "tree-example",
+            "text": "追到具体例子",
+            "color": "black",
+            "x": 650,
+            "y": 385,
+            "parentId": "tree-materials"
+          },
+          {
+            "id": "tree-explain",
+            "text": "用自己的话解释",
+            "color": "blue",
+            "x": 650,
+            "y": 500,
+            "parentId": "tree-practice"
+          },
+          {
+            "id": "tree-try",
+            "text": "换一个例子检验",
+            "color": "black",
+            "x": 650,
+            "y": 575,
+            "parentId": "tree-practice"
+          },
+          {
+            "id": "tree-one-line",
+            "text": "一句话目标",
+            "color": "blue",
+            "x": 960,
+            "y": 40,
+            "parentId": "tree-question"
+          },
+          {
+            "id": "tree-terms",
+            "text": "术语清单",
+            "color": "gray",
+            "x": 960,
+            "y": 235,
+            "parentId": "tree-overview"
+          },
+          {
+            "id": "tree-counterexample",
+            "text": "保留一个反例",
+            "color": "red",
+            "x": 960,
+            "y": 385,
+            "parentId": "tree-example"
+          },
+          {
+            "id": "tree-unknown",
+            "text": "尚未解开的疑问",
+            "color": "gray",
+            "x": 960,
+            "y": 540,
+            "parentId": "tree-try"
+          }
+        ],
+        "edges": [
+          {
+            "id": "tree-edge-01",
+            "a": "tree-root",
+            "b": "tree-goal",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-02",
+            "a": "tree-root",
+            "b": "tree-materials",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-03",
+            "a": "tree-root",
+            "b": "tree-practice",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-04",
+            "a": "tree-goal",
+            "b": "tree-question",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-05",
+            "a": "tree-goal",
+            "b": "tree-result",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-06",
+            "a": "tree-materials",
+            "b": "tree-overview",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-07",
+            "a": "tree-materials",
+            "b": "tree-perspectives",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-08",
+            "a": "tree-materials",
+            "b": "tree-example",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-09",
+            "a": "tree-practice",
+            "b": "tree-explain",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-10",
+            "a": "tree-practice",
+            "b": "tree-try",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-11",
+            "a": "tree-question",
+            "b": "tree-one-line",
+            "style": "solid",
+            "arrow": "single",
+            "color": "blue",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-12",
+            "a": "tree-overview",
+            "b": "tree-terms",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-13",
+            "a": "tree-example",
+            "b": "tree-counterexample",
+            "style": "solid",
+            "arrow": "single",
+            "color": "red",
+            "label": "",
+            "kind": "child"
+          },
+          {
+            "id": "tree-edge-14",
+            "a": "tree-try",
+            "b": "tree-unknown",
+            "style": "dash",
+            "arrow": "single",
+            "color": "gray",
+            "label": "",
+            "kind": "child"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cross-links",
+      "title": "读书会 · 交叉反馈",
+      "description": "把读书会的报名、选题与活动流程放在同一张草稿中；保留两组方向相反且说明不同的关系，以及一条双向关系。检验交叉、回路和并行曲线是否仍能辨认。",
+      "model": {
+        "nodes": [
+          {
+            "id": "network-root",
+            "text": "读书会怎么组织？",
+            "color": "black",
+            "x": 40,
+            "y": 280
+          },
+          {
+            "id": "network-signup",
+            "text": "报名",
+            "color": "black",
+            "x": 320,
+            "y": 80
+          },
+          {
+            "id": "network-topic",
+            "text": "选题",
+            "color": "black",
+            "x": 320,
+            "y": 280
+          },
+          {
+            "id": "network-schedule",
+            "text": "活动安排",
+            "color": "black",
+            "x": 320,
+            "y": 500
+          },
+          {
+            "id": "network-interest",
+            "text": "参与者兴趣",
+            "color": "black",
+            "x": 610,
+            "y": 65
+          },
+          {
+            "id": "network-time",
+            "text": "可投入时间",
+            "color": "gray",
+            "x": 610,
+            "y": 195
+          },
+          {
+            "id": "network-difficulty",
+            "text": "材料难度",
+            "color": "black",
+            "x": 610,
+            "y": 325
+          },
+          {
+            "id": "network-discussion",
+            "text": "现场讨论",
+            "color": "black",
+            "x": 610,
+            "y": 455
+          },
+          {
+            "id": "network-feedback",
+            "text": "反馈",
+            "color": "blue",
+            "x": 610,
+            "y": 585
+          },
+          {
+            "id": "network-candidates",
+            "text": "主题候选",
+            "color": "black",
+            "x": 910,
+            "y": 50
+          },
+          {
+            "id": "network-guide",
+            "text": "一页导读",
+            "color": "blue",
+            "x": 910,
+            "y": 180
+          },
+          {
+            "id": "network-questions",
+            "text": "小组问题",
+            "color": "black",
+            "x": 910,
+            "y": 310
+          },
+          {
+            "id": "network-adjust",
+            "text": "下次调整",
+            "color": "blue",
+            "x": 910,
+            "y": 490
+          },
+          {
+            "id": "network-host",
+            "text": "主持人准备",
+            "color": "black",
+            "x": 40,
+            "y": 70
+          },
+          {
+            "id": "network-constraints",
+            "text": "预算与场地",
+            "color": "red",
+            "x": 40,
+            "y": 500
+          },
+          {
+            "id": "network-later",
+            "text": "暂时不做的想法",
+            "color": "gray",
+            "x": 910,
+            "y": 620
+          }
+        ],
+        "edges": [
+          {
+            "id": "network-edge-01",
+            "a": "network-root",
+            "b": "network-signup",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-02",
+            "a": "network-root",
+            "b": "network-topic",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-03",
+            "a": "network-root",
+            "b": "network-schedule",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-04",
+            "a": "network-signup",
+            "b": "network-interest",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "了解需求"
+          },
+          {
+            "id": "network-edge-05",
+            "a": "network-interest",
+            "b": "network-topic",
+            "style": "solid",
+            "arrow": "single",
+            "color": "blue",
+            "label": "提供方向"
+          },
+          {
+            "id": "network-edge-06",
+            "a": "network-topic",
+            "b": "network-interest",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "检验吸引力"
+          },
+          {
+            "id": "network-edge-07",
+            "a": "network-topic",
+            "b": "network-candidates",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-08",
+            "a": "network-candidates",
+            "b": "network-guide",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-09",
+            "a": "network-guide",
+            "b": "network-discussion",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "提前阅读"
+          },
+          {
+            "id": "network-edge-10",
+            "a": "network-difficulty",
+            "b": "network-guide",
+            "style": "solid",
+            "arrow": "double",
+            "color": "gray",
+            "label": "相互调整"
+          },
+          {
+            "id": "network-edge-11",
+            "a": "network-time",
+            "b": "network-schedule",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-12",
+            "a": "network-schedule",
+            "b": "network-discussion",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-13",
+            "a": "network-discussion",
+            "b": "network-feedback",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-14",
+            "a": "network-feedback",
+            "b": "network-adjust",
+            "style": "solid",
+            "arrow": "single",
+            "color": "blue",
+            "label": ""
+          },
+          {
+            "id": "network-edge-15",
+            "a": "network-adjust",
+            "b": "network-topic",
+            "style": "dash",
+            "arrow": "single",
+            "color": "blue",
+            "label": "下一轮"
+          },
+          {
+            "id": "network-edge-16",
+            "a": "network-questions",
+            "b": "network-discussion",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": "引导"
+          },
+          {
+            "id": "network-edge-17",
+            "a": "network-discussion",
+            "b": "network-questions",
+            "style": "solid",
+            "arrow": "single",
+            "color": "blue",
+            "label": "产生新问题"
+          },
+          {
+            "id": "network-edge-18",
+            "a": "network-host",
+            "b": "network-guide",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-19",
+            "a": "network-constraints",
+            "b": "network-schedule",
+            "style": "solid",
+            "arrow": "none",
+            "color": "red",
+            "label": ""
+          },
+          {
+            "id": "network-edge-20",
+            "a": "network-constraints",
+            "b": "network-signup",
+            "style": "solid",
+            "arrow": "double",
+            "color": "gray",
+            "label": "人数与容量"
+          },
+          {
+            "id": "network-edge-21",
+            "a": "network-later",
+            "b": "network-adjust",
+            "style": "dash",
+            "arrow": "none",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-22",
+            "a": "network-feedback",
+            "b": "network-interest",
+            "style": "dash",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-23",
+            "a": "network-topic",
+            "b": "network-difficulty",
+            "style": "solid",
+            "arrow": "none",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "network-edge-24",
+            "a": "network-host",
+            "b": "network-questions",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-text",
+      "title": "台灯设计 · 长文推敲",
+      "description": "多段真实长度的解释占据画布中部，左右保留方案与测试记录。检验线条经过长段文字附近时是否自然、端点是否清楚；少量轻微交叠可接受，不要求零碰撞。",
+      "model": {
+        "nodes": [
+          {
+            "id": "dense-root",
+            "text": "设计题\n给小空间做一盏灯",
+            "color": "black",
+            "x": 40,
+            "y": 50
+          },
+          {
+            "id": "dense-constraints",
+            "text": "先记下约束\n桌面空间有限；需要调整照明方向；希望清理方便。现在先讨论形态，不急着决定材料。",
+            "color": "black",
+            "x": 40,
+            "y": 240
+          },
+          {
+            "id": "dense-a",
+            "text": "方向 A：固定底座\n摆放直接，不依赖桌边形状。需要留意底座占用的面积，以及移动时是否顺手。",
+            "color": "black",
+            "x": 340,
+            "y": 55
+          },
+          {
+            "id": "dense-b",
+            "text": "方向 B：夹在桌边\n释放桌面空间，但夹持厚度和接触面需要验证。不要只看正面，侧面也要画一遍。",
+            "color": "black",
+            "x": 340,
+            "y": 260
+          },
+          {
+            "id": "dense-c",
+            "text": "方向 C：壁面固定\n可以把桌面完全留空。安装条件更苛刻，这次先保留为一个备选方向。",
+            "color": "gray",
+            "x": 340,
+            "y": 460
+          },
+          {
+            "id": "dense-compare",
+            "text": "第一次比较\n稳定性、调节范围和收纳方式并不总是同向改善。先找出真正影响日常动作的差别。",
+            "color": "black",
+            "x": 660,
+            "y": 140
+          },
+          {
+            "id": "dense-detail",
+            "text": "小细节可能改变使用体验\n调节时手指放哪里？关节附近会不会挡住视线？收起后还有没有容易磕碰的突出部分？",
+            "color": "black",
+            "x": 660,
+            "y": 370
+          },
+          {
+            "id": "dense-prototype",
+            "text": "先做两种纸模\n只验证形态与操作",
+            "color": "blue",
+            "x": 960,
+            "y": 65
+          },
+          {
+            "id": "dense-test",
+            "text": "按动作测试\n坐下、伸手调整、关灯、收起。每一步记下不顺手的位置，再回头改方案。",
+            "color": "black",
+            "x": 960,
+            "y": 300
+          },
+          {
+            "id": "dense-pending",
+            "text": "待定\n是否要为临时换位置留一套操作？先收集使用情境。",
+            "color": "gray",
+            "x": 960,
+            "y": 550
+          },
+          {
+            "id": "dense-exception",
+            "text": "还有例外情况\n桌边可能有挡板，也可能离墙很近。别把示意图里的空白默认成现实中一定存在的空间。",
+            "color": "red",
+            "x": 40,
+            "y": 485
+          },
+          {
+            "id": "dense-warning",
+            "text": "先验证，再定型\n图上看起来合理不等于顺手。",
+            "color": "red",
+            "x": 340,
+            "y": 620
+          },
+          {
+            "id": "dense-insight",
+            "text": "一个暂时的归纳\n从人的连续动作检查形态，比只看静态轮廓更容易发现问题。",
+            "color": "blue",
+            "x": 660,
+            "y": 600
+          }
+        ],
+        "edges": [
+          {
+            "id": "dense-edge-01",
+            "a": "dense-root",
+            "b": "dense-constraints",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-02",
+            "a": "dense-root",
+            "b": "dense-a",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-03",
+            "a": "dense-root",
+            "b": "dense-b",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-04",
+            "a": "dense-root",
+            "b": "dense-c",
+            "style": "dash",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-05",
+            "a": "dense-constraints",
+            "b": "dense-a",
+            "style": "solid",
+            "arrow": "none",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-06",
+            "a": "dense-constraints",
+            "b": "dense-b",
+            "style": "solid",
+            "arrow": "none",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-07",
+            "a": "dense-constraints",
+            "b": "dense-c",
+            "style": "dash",
+            "arrow": "none",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-08",
+            "a": "dense-a",
+            "b": "dense-prototype",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-09",
+            "a": "dense-b",
+            "b": "dense-prototype",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-10",
+            "a": "dense-c",
+            "b": "dense-pending",
+            "style": "dash",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-11",
+            "a": "dense-a",
+            "b": "dense-compare",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-12",
+            "a": "dense-b",
+            "b": "dense-compare",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-13",
+            "a": "dense-exception",
+            "b": "dense-b",
+            "style": "solid",
+            "arrow": "single",
+            "color": "red",
+            "label": "适用条件"
+          },
+          {
+            "id": "dense-edge-14",
+            "a": "dense-exception",
+            "b": "dense-pending",
+            "style": "dash",
+            "arrow": "single",
+            "color": "red",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-15",
+            "a": "dense-compare",
+            "b": "dense-detail",
+            "style": "solid",
+            "arrow": "double",
+            "color": "gray",
+            "label": "来回检查"
+          },
+          {
+            "id": "dense-edge-16",
+            "a": "dense-detail",
+            "b": "dense-test",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-17",
+            "a": "dense-prototype",
+            "b": "dense-test",
+            "style": "solid",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-18",
+            "a": "dense-test",
+            "b": "dense-pending",
+            "style": "dash",
+            "arrow": "single",
+            "color": "gray",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-19",
+            "a": "dense-test",
+            "b": "dense-insight",
+            "style": "solid",
+            "arrow": "single",
+            "color": "blue",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-20",
+            "a": "dense-warning",
+            "b": "dense-prototype",
+            "style": "dash",
+            "arrow": "single",
+            "color": "red",
+            "label": ""
+          },
+          {
+            "id": "dense-edge-21",
+            "a": "dense-pending",
+            "b": "dense-root",
+            "style": "dash",
+            "arrow": "single",
+            "color": "gray",
+            "label": "回到题目"
+          }
+        ]
+      }
+    }
+  ]
+}

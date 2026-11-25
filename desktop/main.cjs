@@ -36,7 +36,7 @@ function openPaper(){
   if(mainWindow) return;
   mainWindow=new BrowserWindow({
     title:'草稿纸', width:1120,height:770, minWidth:580,minHeight:475,
-    show:false, backgroundColor:'#f8f7f3',icon:path.join(__dirname,'icon.png'),
+    show:false, backgroundColor:'#fce3bf',icon:path.join(__dirname,'icon.png'),
     webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,spellcheck:false,preload:path.join(__dirname,'preload.cjs')}
   });
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -45,9 +45,23 @@ function openPaper(){
     if(!url||url.split('?')[0]!==paperURL)event.preventDefault();
   });
   mainWindow.webContents.on('before-input-event',(event,input)=>{
-    if(input.type==='keyDown'&&input.shift&&(input.control||input.meta)&&!input.alt&&input.key.toLowerCase()==='s'){
+    if(input.type!=='keyDown'||input.isComposing)return;
+    const key=String(input.key||'').toLowerCase();
+    const code=String(input.code||'').toLowerCase();
+    if(input.shift&&(input.control||input.meta)&&!input.alt&&key==='s'){
       event.preventDefault();
       void saveScreenshot(mainWindow);
+      return;
+    }
+    // Handle the remapped function keys before Chromium can turn them into a
+    // second DOM keydown. The web editor uses the same color action for its
+    // browser key/keyCode fallback. Other function keys stay available.
+    if(!input.control&&!input.meta&&!input.alt){
+      const direction=key==='f17'||code==='f17'?-1:key==='f18'||code==='f18'?1:0;
+      if(direction){
+        event.preventDefault();
+        mainWindow.webContents.send('paper:color-step',direction);
+      }
     }
   });
   mainWindow.once('ready-to-show',()=>mainWindow?.show());
@@ -73,5 +87,10 @@ else{
     openPaper();
     app.on('activate',openPaper);
   });
-  app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
+  app.on('window-all-closed',()=>{
+    // Renderer beforeunload/pagehide flushes its pending model first; ask
+    // Chromium to flush the resulting DOM storage before leaving the app.
+    session.defaultSession.flushStorageData();
+    if(process.platform!=='darwin')app.quit();
+  });
 }

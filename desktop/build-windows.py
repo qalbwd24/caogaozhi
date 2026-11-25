@@ -13,6 +13,26 @@ VERSION='45.5.0'
 FILENAME=f'electron-v{VERSION}-win32-x64.zip'
 BASE=f'https://github.com/electron/electron/releases/download/v{VERSION}'
 ROOT=pathlib.Path(__file__).resolve().parent.parent
+RUNTIME_EXTENSIONS={'.html','.js','.mjs','.cjs','.css','.json','.png','.jpg','.jpeg','.webp','.gif','.svg','.ico','.woff','.woff2','.ttf','.otf','.wasm'}
+
+def app_files() -> list[tuple[pathlib.Path,str]]:
+    """Include the full renderer, while keeping local tests and scratch files out."""
+    dist=ROOT/'dist'
+    if not (dist/'index.html').is_file():
+        raise FileNotFoundError('Missing dist/index.html. Build the renderer before packaging.')
+    result=[]
+    for source in sorted(dist.rglob('*')):
+        relative=source.relative_to(dist)
+        if not source.is_file() or source.is_symlink():
+            continue
+        if any(part.startswith('.') or part in {'node_modules','__pycache__','tests','test','coverage','screenshots'} for part in relative.parts):
+            continue
+        if source.suffix.lower() not in RUNTIME_EXTENSIONS:
+            continue
+        if source.name.endswith(('.test.js','.spec.js','.test.cjs','.spec.cjs','.test.mjs','.spec.mjs')):
+            continue
+        result.append((source,'dist/'+relative.as_posix()))
+    return result
 
 def download(url: str, target: pathlib.Path) -> None:
     with urllib.request.urlopen(url,timeout=120) as response,target.open('wb') as out:
@@ -29,6 +49,7 @@ def build() -> None:
     args=ap.parse_args()
     out=args.output.resolve()
     out.parent.mkdir(parents=True,exist_ok=True)
+    renderer_files=app_files()
     with tempfile.TemporaryDirectory(prefix='caogaozhi-') as tmp:
         stage=pathlib.Path(tmp)
         cache=args.cache.resolve() if args.cache else stage
@@ -55,7 +76,8 @@ def build() -> None:
             app=prefix+'resources/app/'
             for name in ['main.cjs','preload.cjs','package.json','icon.png']:
                 result.write(ROOT/'desktop'/name,app+name)
-            result.write(ROOT/'dist'/'index.html',app+'dist/index.html')
+            for source,destination in renderer_files:
+                result.write(source,app+destination)
             result.writestr(prefix+'使用前先读.txt','草稿纸 Windows x64 预览版\r\n请完整解压，双击“草稿纸.exe”。不要只移动 EXE。\r\n草稿保存到本机。首次运行未签名版本，Windows 可能提示。\r\n'.encode('utf-8-sig'))
         print(f'{sha(out)}  {out}')
 
