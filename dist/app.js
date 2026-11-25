@@ -16,6 +16,7 @@ let cam = {x:0,y:0,z:1}, gesture = null, pinch = null, preview = null, space = f
 let workspace, loading = true, drawFrame = 0, wheelFrame = 0, saveError = '', renaming = false;
 let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null, toolEditorSelection = null;
 const toolColumns = [];
+let pointerDragFrame = 0;
 let hover = null, hoverTimer = 0, movable = null, inkHintTimer = 0;
 const settingDefaults = {hoverDelay:440,inkHint:true,lineStyle:'solid',zoomLocked:false};
 let touchpadProbe = null, touchpadProbeTimer = 0;
@@ -170,7 +171,7 @@ function drawParallelGuides() {
     if (!groups.has(n.parallelId)) groups.set(n.parallelId,[]);
     groups.get(n.parallelId).push(n);
   }
-  for (const members of groups.values()) {
+  for (const [group,members] of groups) {
     if (members.length < 2) continue;
     const boxes = members.map(size);
     const xs = boxes.map(r => r.x+r.w/2), ys = boxes.map(r => r.y+r.h/2);
@@ -196,11 +197,17 @@ function drawParallelGuides() {
       }
     }
 
-    fragment.append(svgEl('path',{class:'parallel-guide',d:path.join(' ')}));
+    fragment.append(svgEl('path',{class:'parallel-guide','data-parallel-guide':group,d:path.join(' ')}));
   }
   layer.replaceChildren(fragment);
 }
-function scheduleDraw() { if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = 0; drawParallelGuides(); draw(); }); }
+function scheduleDraw() {
+  if (!drawFrame) drawFrame = requestAnimationFrame(() => {
+    drawFrame = 0;
+    if (gesture?.type === 'move' && gesture.dragStarted) return;
+    drawParallelGuides(); draw();
+  });
+}
 function fit() {
   applyWheelPan();
   if (!model.nodes.length) { cam = {x:0,y:0,z:1}; camera(); return; }
@@ -427,13 +434,19 @@ function cycleInk() {
   setInk(colors[(colors.indexOf(current)+1)%colors.length]);
 }
 function stepPaperShortcut(code) {
-  if (document.activeElement?.closest('input,select,dialog')) return;
-  if (code === 'F18') { cycleInk(); return; }
-  if (code !== 'F17') return;
+  // Base the action on the active canvas object/editor, not on which
+  // inspector button or selector currently holds DOM focus.
+  if (dialogOpen() || renaming) return 'blocked';
+  if (code === 'F18') {
+    if (editing && toolPage && !panel.hidden) closePanel(true);
+    cycleInk(); return 'applied';
+  }
+  if (code !== 'F17') return 'blocked';
   const e = edge(edgeId);
-  if (!e) { showActionHint(ink,'箭头','先选中一条连线'); return; }
+  if (!e) { showActionHint(ink,'箭头','先选中一条连线'); return 'no-edge'; }
   const modes=Object.keys(arrows);
   setEdgeAttr('arrow',modes[(modes.indexOf(e.arrow)+1)%modes.length]);
+  return 'applied';
 }
 function setEdgeAttr(key,value) {
   const e = edge(edgeId);
@@ -844,7 +857,7 @@ document.addEventListener('keydown',e => {
   if (e.altKey || e.getModifierState?.('AltGraph')) return;
   const key = e.key || '', k = key.toLowerCase(), cmd = e.ctrlKey || e.metaKey;
   const field = e.target.closest?.('input,select,dialog');
-  if ((key === 'F17' || e.code === 'F17' || e.keyCode === 128 || key === 'F18' || e.code === 'F18' || e.keyCode === 129) && !field) {
+  if (key === 'F17' || e.code === 'F17' || e.keyCode === 128 || key === 'F18' || e.code === 'F18' || e.keyCode === 129) {
     e.preventDefault(); if (!e.repeat) stepPaperShortcut(key === 'F17' || e.code === 'F17' || e.keyCode === 128 ? 'F17' : 'F18'); return;
   }
   if (e.isComposing || e.keyCode === 229 || editing?.controller?.isComposing(e)) return;
@@ -978,7 +991,7 @@ async function runShortcutProbe() {
   try {
     const result = await window.paperDesktop.probeShortcuts();
     if (!result) return;
-    const summary = Object.entries(result).map(([k,n]) => k+' 按下'+n.down+'/松开'+n.up+'/转发'+n.used+(n.repeat?' (重复'+n.repeat+')':''));
+    const summary = Object.entries(result).map(([k,n]) => k+' 收到'+n.down+'/转发'+n.used+'/执行'+n.applied+(n.noEdge?' (未选线'+n.noEdge+')':n.blocked?' (暂不可用'+n.blocked+')':n.repeat?' (重复'+n.repeat+')':''));
     touchpadMessage(summary.join(' · '));
   } catch { touchpadMessage('未能完成快捷键诊断。'); }
 }
@@ -1041,8 +1054,47 @@ function moveCohort(n) {
 function applyCohort(cohort,dx,dy) {
   for (const pos of cohort) { pos.item.x = pos.x+dx; pos.item.y = pos.y+dy; }
 }
+function movePreviewFor(g) {
+  const ids = new Set(g.cohort.map(({item}) => item.id));
+  const elements = g.cohort.map(({item}) => dom.get(item.id)).filter(Boolean);
+  const group = g.n.parallelId;
+  const guide = group ? [...$('parallel-guides').children].find(path=>path.dataset.parallelGuide===group) : null;
+  const wires = dragWirePreview(ids);
+  if (elements.length <= 48) for (const el of elements) el.style.willChange = 'transform';
+  return {elements,guide,wires};
+}
+function drawPointerDrag(g) {
+  if (!g.latest) return;
+  const {x,y} = g.latest; g.latest = null;
+  if (g.type === 'pan') {
+    cam.x = g.cx + x-g.x; cam.y = g.cy + y-g.y; camera(false); return;
+  }
+  const dx = (x-g.x)/cam.z, dy = (y-g.y)/cam.z;
+  const p = g.movePreview ||= movePreviewFor(g);
+  const transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
+  for (const el of p.elements) el.style.transform = transform;
+  if (p.guide) p.guide.setAttribute('transform','translate('+dx+' '+dy+')');
+  moveDragWirePreview(p.wires,dx,dy);
+}
+function schedulePointerDrag(g,x,y) {
+  g.latest = {x,y};
+  if (!pointerDragFrame) pointerDragFrame = requestAnimationFrame(() => {
+    pointerDragFrame = 0;
+    if (gesture === g) drawPointerDrag(g);
+  });
+}
+function stopPointerDrag(g,finishPan=false) {
+  if (pointerDragFrame) { cancelAnimationFrame(pointerDragFrame); pointerDragFrame = 0; }
+  if (finishPan && g?.type === 'pan') drawPointerDrag(g);
+  if (!g?.movePreview) return;
+  const p=g.movePreview;
+  for (const el of p.elements) { el.style.transform = ''; el.style.willChange = ''; }
+  p.guide?.removeAttribute('transform');
+  moveDragWirePreview(p.wires,0,0);
+  g.movePreview=null;
+}
 function cancelMoveIfActive() {
-  if (gesture?.type === 'move' && gesture.moved) { applyCohort(gesture.cohort,0,0); render(); }
+  if (gesture?.type === 'move') stopPointerDrag(gesture);
 }
 function clearHover() {
   if (hoverTimer) clearTimeout(hoverTimer);
@@ -1100,7 +1152,7 @@ paper.addEventListener('pointerdown',e => {
     points.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if (points.size === 2) {
       cancelMoveIfActive();
-      gesture = null; preview = null; clearGestureCursor(); clearHover(); scheduleDraw(); pinch = {...fingers(),cam:{...cam}}; e.preventDefault(); return;
+      stopPointerDrag(gesture,true); gesture = null; preview = null; clearGestureCursor(); clearHover(); scheduleDraw(); pinch = {...fingers(),cam:{...cam}}; e.preventDefault(); return;
     }
     if (points.size > 1 || pinch) return;
   }
@@ -1147,19 +1199,17 @@ paper.addEventListener('pointermove',e => {
     scheduleDraw();
   }
   if (g.type === 'move') {
-    paper.dataset.gesture = 'move';
-    applyCohort(g.cohort,dx/cam.z,dy/cam.z);
     if (!g.dragStarted) {
-      g.dragStarted = true; selected = g.n.id; edgeId = null; render();
-    } else {
-      for (const {item} of g.cohort) {
-        const element = dom.get(item.id);
-        if (element) { element.style.left = item.x+'px'; element.style.top = item.y+'px'; }
-      }
-      scheduleDraw();
+      // Use currently displayed routes; the final full route runs only on drop.
+      g.dragStarted = true;
+      paper.dataset.gesture = 'move';
+      if (selected && selected !== g.n.id && selected !== source) dom.get(selected)?.classList.remove('selected');
+      selected = g.n.id; edgeId = null; dom.get(selected)?.classList.add('selected');
+      svg.querySelector('.wire.chosen')?.classList.remove('chosen'); sync();
     }
+    schedulePointerDrag(g,e.clientX,e.clientY);
   }
-  if (takingPan) { cam.x = g.cx+dx; cam.y = g.cy+dy; camera(false); paper.classList.add('grabbing'); }
+  if (takingPan) { if (!g.latest) paper.classList.add('grabbing'); schedulePointerDrag(g,e.clientX,e.clientY); }
 });
 function tapConnect(id,p) {
   if (!source) return;
@@ -1171,7 +1221,7 @@ paper.addEventListener('pointerup',e => {
   points.delete(e.pointerId);
   if (pinch) { if (!points.size) pinch = null; return; }
   if (gesture?.id !== e.pointerId) return;
-  const g = gesture; gesture = null; clearGestureCursor();
+  const g = gesture; gesture = null; stopPointerDrag(g); clearGestureCursor();
   if (paper.hasPointerCapture?.(e.pointerId)) paper.releasePointerCapture(e.pointerId);
   if (g.type === 'touchZoom') { stepScreenZoom(g,e); applyWheelPan(); return; }
   if (g.type === 'pan' && g.moved) {
@@ -1180,7 +1230,10 @@ paper.addEventListener('pointerup',e => {
   const p = world(e.clientX,e.clientY);
   if (g.type === 'blank' && !g.moved) { finishEdit(); closePanel(); newNote(p.x,p.y); }
   if (g.type === 'move') {
-    if (g.moved) { changed(g.before); selectNode(g.n.id); dom.get(g.n.id)?.focus({preventScroll:true}); }
+    if (g.moved) {
+      applyCohort(g.cohort,(e.clientX-g.x)/cam.z,(e.clientY-g.y)/cam.z);
+      changed(g.before); selectNode(g.n.id); dom.get(g.n.id)?.focus({preventScroll:true});
+    }
     else { selectNode(g.n.id); openEditor(g.n,null,{x:e.clientX,y:e.clientY}); }
   }
   if (g.type === 'edge' && !g.moved) { finishEdit(); selectEdge(g.lid); paper.focus({preventScroll:true}); }
@@ -1202,7 +1255,7 @@ function cancelGesture(e) {
   points.delete(e.pointerId); if (!points.size) pinch = null;
   if (gesture?.id !== e.pointerId) return;
   cancelMoveIfActive();
-  if (gesture.type === 'pan' && gesture.moved) camera();
+  if (gesture.type === 'pan' && gesture.moved) { stopPointerDrag(gesture,true); camera(); }
   if (gesture.type === 'touchZoom') applyWheelPan();
   gesture = null; preview = null; scheduleDraw(); clearGestureCursor();
 }
@@ -1223,7 +1276,7 @@ paper.addEventListener('contextmenu',e => {
 document.addEventListener('pointerdown',e => {
   if (!panel.hidden && !e.target.closest('#panel,#file,#inspect-more,#save-error')) closePanel();
 });
-window.addEventListener('blur',() => { heldControls.clear(); space = false; cancelMoveIfActive(); gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
+window.addEventListener('blur',() => { heldControls.clear(); space = false; stopPointerDrag(gesture,true); gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
 window.addEventListener('pagehide',flush);
 window.addEventListener('beforeunload',flush);
 document.addEventListener('visibilitychange',() => { if (document.hidden) flush(); });

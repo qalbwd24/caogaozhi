@@ -176,6 +176,38 @@ function routeEdgeSettings(nodes) {
   return settings;
 }
 let paperRouteCache={key:'',curves:new Map()};
+function dragWirePreview(ids) {
+  const hitById = new Map([...svg.querySelectorAll('.hit[data-edge]')].map(hit=>[hit.dataset.edge,hit]));
+  const affected = [];
+  for (const e of model.edges) {
+    const a = ids.has(e.a), b = ids.has(e.b);
+    if (!a && !b) continue;
+    const hit = hitById.get(e.id), wire = hit?.nextElementSibling;
+    const curve = paperRouteCache.curves.get(e.id);
+    if (!wire || !curve?.cubic) continue;
+    const label = e.label ? wire.nextElementSibling : null;
+    affected.push({a,b,hit,wire,label,curve});
+  }
+  return affected;
+}
+function moveDragWirePreview(items,dx,dy) {
+  const translate = (item,x,y) => item?.setAttribute('transform','translate('+x+' '+y+')');
+  for (const {a,b,hit,wire,label,curve} of items) {
+    if (!dx && !dy) {
+      hit.removeAttribute('transform'); wire.removeAttribute('transform'); label?.removeAttribute('transform');
+      hit.setAttribute('d',curve.path); wire.setAttribute('d',curve.path);
+    } else if (a && b) {
+      translate(hit,dx,dy); translate(wire,dx,dy); translate(label,dx,dy);
+    } else {
+      const points = curve.cubic.map((p,i) => {
+        const moving = i < 2 ? a : b;
+        return (p.x+(moving?dx:0)) + ' ' + (p.y+(moving?dy:0));
+      });
+      const d = 'M'+points[0]+' C'+points.slice(1).join(' ');
+      hit.setAttribute('d',d); wire.setAttribute('d',d); translate(label,dx/2,dy/2);
+    }
+  }
+}
 function draw() {
   const defs=svgEl('defs',{});
   for(const [key,[color]] of Object.entries(inks)) {

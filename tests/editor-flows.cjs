@@ -309,3 +309,20 @@ test('Esc toggles tools without finishing the selected text, and ignores IME and
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#panel').isVisible(),false);
 });
+
+test('a focused line-style selector does not swallow repeated F17, and F18 still updates the pen', async t => {
+  const page = await pageFor(t);
+  await writeFirst(page,'甲');
+  await page.keyboard.press('Tab');
+  await page.keyboard.insertText('乙');
+  await page.keyboard.press('Enter');
+  await page.evaluate(() => { selectEdge(model.edges[0].id); document.querySelector('#stroke-style').focus(); });
+  for (const arrow of ['reverse','double','none','single']) {
+    await functionKey(page,'F17');
+    assert.equal((await app(page)).model.edges[0].arrow,arrow);
+  }
+  const before=(await app(page)).ink;
+  await functionKey(page,'F18');
+  assert.notEqual((await app(page)).ink,before);
+  assert.equal(await page.evaluate(() => document.activeElement.id),'stroke-style');
+});

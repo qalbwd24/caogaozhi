@@ -107,12 +107,22 @@ else{
   app.on('second-instance',()=>{if(mainWindow){if(mainWindow.isMinimized())mainWindow.restore();mainWindow.focus();}});
   app.whenReady().then(()=>{
     Menu.setApplicationMenu(null);
+    ipcMain.on('paper:shortcut-result',(event,direction,result)=>{
+      const w=mainWindow;
+      if(!keyProbe || !w || event.sender!==w.webContents ||
+         event.senderFrame!==w.webContents.mainFrame || event.senderFrame?.url.split('?')[0]!==paperURL ||
+         (direction!==-1 && direction!==1))return;
+      const row=keyProbe[direction===-1?'F17':'F18'];
+      if(result==='applied')row.applied++;
+      else if(result==='blocked')row.blocked++;
+      else if(result==='no-edge')row.noEdge++;
+    });
     ipcMain.handle('paper:probe-shortcuts',async event=>{
       const w=mainWindow;
       if(keyProbe || !w || event.sender!==w.webContents ||
          event.senderFrame!==w.webContents.mainFrame || event.senderFrame?.url.split('?')[0]!==paperURL) return null;
-      const probe={F17:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0},
-        F18:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0}};
+      const probe={F17:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0,applied:0,blocked:0,noEdge:0},
+        F18:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0,applied:0,blocked:0,noEdge:0}};
       keyProbe=probe;
       await new Promise(resolve=>setTimeout(resolve,8000));
       if(keyProbe===probe)keyProbe=null;

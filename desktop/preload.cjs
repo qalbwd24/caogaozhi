@@ -19,7 +19,10 @@ contextBridge.exposeInMainWorld('paperDesktop',Object.freeze({
   onColorStep:(callback)=>{
     if(typeof callback!=='function')return ()=>{};
     const listener=(_event,direction)=>{
-      if(direction===-1||direction===1)callback(direction);
+      if(direction!==-1 && direction!==1)return;
+      const result=callback(direction);
+      if(result==='applied'||result==='blocked'||result==='no-edge')
+        ipcRenderer.send('paper:shortcut-result',direction,result);
     };
     ipcRenderer.on('paper:color-step',listener);
     return ()=>ipcRenderer.removeListener('paper:color-step',listener);
