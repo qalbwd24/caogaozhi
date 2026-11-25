@@ -11,6 +11,7 @@ let model = blank(), selected = null, edgeId = null, ink = 'black', source = nul
 let cam = {x:0,y:0,z:1}, gesture = null, pinch = null, preview = null, space = false, panelType = '';
 let workspace, loading = true, drawFrame = 0, wheelFrame = 0, saveError = '', renaming = false;
 let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null, toolEditorSelection = null;
+const toolColumns = [];
 let hover = null, hoverTimer = 0, movable = null, inkHintTimer = 0;
 const settingDefaults = {hoverDelay:440,inkHint:true,lineStyle:'solid'};
 let touchpadProbe = null, touchpadProbeTimer = 0;
@@ -465,7 +466,7 @@ function renameTab(id=workspace.state.activeId) {
 function closePanel(restoreFocus=false) {
   const previous = panelReturn, held = toolEditorSelection;
   const resume = !!(held && editing?.host === previous && (restoreFocus || panel.contains(document.activeElement)));
-  panel.hidden = true; panelType = ''; panelAnchor = panelReturn = toolTarget = toolEditorSelection = null; toolPage = ''; sync();
+  panel.hidden = true; panelType = ''; panelAnchor = panelReturn = toolTarget = toolEditorSelection = null; toolPage = ''; toolColumns.length = 0; sync();
   if (resume) {
     editing.controller.focus(); editing.controller.setSelection(held.start,held.end,held.direction);
   } else if (restoreFocus) {
@@ -475,17 +476,13 @@ function closePanel(restoreFocus=false) {
   }
 }
 function showPanel(type,title,anchor=null,returnTo=document.activeElement) {
-  panel.replaceChildren(); panelType = type; panelAnchor = anchor;
+  panel.replaceChildren(); toolColumns.length = 0; panel.removeAttribute('data-cascade');
+  panelType = type; panelAnchor = anchor;
   panelReturn = returnTo && returnTo !== document.body && !panel.contains(returnTo) ? returnTo : paper;
   panel.toggleAttribute('data-anchored',!!anchor); panel.hidden = false;
   panel.style.removeProperty('--menu-x'); panel.style.removeProperty('--menu-y'); panel.scrollTop = 0;
   clearHover();
   const heading = document.createElement('strong'); heading.textContent = title; panel.append(heading);
-  if (toolPage && toolPage !== 'root') {
-    const back = document.createElement('button'); back.type = 'button'; back.className = 'level-back';
-    back.textContent = '‹ 返回工具'; back.setAttribute('aria-label','返回上一级工具菜单'); back.onclick = backTools;
-    panel.append(back);
-  }
   const close = document.createElement('button'); close.className = 'close'; close.textContent = '×'; close.setAttribute('aria-label','关闭菜单'); close.onclick = () => closePanel(true); panel.append(close); sync();
 }
 function placePanel() {
@@ -500,7 +497,8 @@ function placePanel() {
   panel.style.setProperty('--menu-x',choose(x,w,width)+'px');
   panel.style.setProperty('--menu-y',choose(y,h,height)+'px');
 }
-function menuItems() { return [...panel.querySelectorAll('.menu-item:not(:disabled),input:not(:disabled),select:not(:disabled)')]; }
+function menuBody() { return toolColumns.at(-1)?.body || panel; }
+function menuItems() { return [...menuBody().querySelectorAll('.menu-item:not(:disabled),input:not(:disabled),select:not(:disabled)')]; }
 function keyboardAnchor() {
   const object = dom.get(selected) || (edgeId && [...svg.querySelectorAll('.hit')].find(e => e.dataset.edge === edgeId));
   const v = paper.getBoundingClientRect(), r = object?.getBoundingClientRect();
@@ -514,10 +512,19 @@ function pbutton(label,fn,key='',disabled=false,klass='') {
   const button = document.createElement('button'); button.className = 'menu-item '+klass; button.disabled = disabled;
   const text = document.createElement('span'); text.textContent = label; button.append(text);
   if (key) { const hint = document.createElement('kbd'); hint.textContent = key; button.append(hint); }
-  button.onclick = fn; panel.append(button); return button;
+  button.onclick = fn; menuBody().append(button); return button;
 }
-function divider() { panel.append(document.createElement('hr')); }
-function focusMenu() { placePanel(); (menuItems()[0] || panel).focus({preventScroll:true}); }
+function divider() { menuBody().append(document.createElement('hr')); }
+function markMenuFocus(target) {
+  panel.querySelector('[data-menu-focus]')?.removeAttribute('data-menu-focus');
+  if (target.matches('.tool-column .menu-item,.tool-column input,.tool-column select')) target.setAttribute('data-menu-focus','');
+}
+function focusMenuItem(target) {
+  markMenuFocus(target);
+  target.focus({preventScroll:true});
+}
+panel.addEventListener('focusin',e => markMenuFocus(e.target));
+function focusMenu() { placePanel(); focusMenuItem(menuItems()[0] || menuBody()); }
 function removeSelection() {
   finishEdit(); const before = capture();
   if (edgeId) { model.edges = model.edges.filter(e => e.id !== edgeId); edgeId = null; }
@@ -529,15 +536,15 @@ function removeSelection() {
   changed(before); closePanel(); render(); paper.focus({preventScroll:true});
 }
 function startLink(id) { finishEdit(); selected = id; edgeId = null; source = id; closePanel(); render(); announce('请选择要连接的文字，或点击空白创建目标。'); }
-function openProps(anchor=null,returnTo=document.activeElement) {
+function openProps(anchor=null,returnTo=document.activeElement,submenu=false) {
   finishEdit(); const e = edge(edgeId), n = node(selected); if (!e && !n) { openFile(anchor,returnTo); return; }
-  showPanel('props',e ? '连线' : '文字',anchor,returnTo);
+  if (!submenu) showPanel('props',e ? '连线' : '文字',anchor,returnTo);
   if (e) {
-    const label = document.createElement('label'); label.textContent = '关系'; const input = document.createElement('input'); input.maxLength = 80; input.value = e.label; input.setAttribute('aria-label','关系说明'); input.onchange = () => setEdgeAttr('label',input.value); label.append(input); panel.append(label);
+    const label = document.createElement('label'); label.textContent = '关系'; const input = document.createElement('input'); input.maxLength = 80; input.value = e.label; input.setAttribute('aria-label','关系说明'); input.onchange = () => setEdgeAttr('label',input.value); label.append(input); menuBody().append(label);
     const field = (title,key,options) => {
       const label = document.createElement('label'); label.textContent = title; const select = document.createElement('select'); select.setAttribute('aria-label',title);
       for (const [value,text] of options) { const option = document.createElement('option'); option.value = value; option.textContent = text; select.append(option); }
-      select.value = e[key]; select.onchange = () => setEdgeAttr(key,select.value); label.append(select); panel.append(label);
+      select.value = e[key]; select.onchange = () => setEdgeAttr(key,select.value); label.append(select); menuBody().append(label);
     };
     field('线型','style',[['solid','实线'],['dash','虚线']]); field('方向','arrow',Object.entries(arrows));
     field('颜色','color',colors.map(c => [c,inks[c][1].split(' · ')[0]]));
@@ -563,7 +570,7 @@ function openProps(anchor=null,returnTo=document.activeElement) {
       const before = capture(); n.color = color; n.runs = n.text ? [{text:n.text,color}] : []; changed(before); render();
       picker.querySelector('option[value=""]')?.remove(); showInkHint(color,'整块文字');
     };
-    label.append(picker); panel.append(label);
+    label.append(picker); menuBody().append(label);
     pbutton('删除文字',removeSelection,'Delete',false,'trash');
   }
   focusMenu();
@@ -606,15 +613,44 @@ function toggleTools() {
   panelAnchor = anchor;
   showTools('root');
 }
-function showTools(page,focusGroup) {
+function removeToolColumns(keep) {
+  while (toolColumns.length > keep) {
+    const {body,owner} = toolColumns.pop();
+    owner?.setAttribute('aria-expanded','false');
+    body.remove();
+  }
+  toolPage = toolColumns.at(-1)?.page || '';
+}
+function showTools(page,owner=null) {
   const anchor = panelAnchor, origin = toolTarget;
+  if (!owner) {
+    showPanel('tools','工具',anchor,origin);
+    panel.replaceChildren();
+  } else {
+    const parentIndex = toolColumns.findIndex(c => c.body.contains(owner));
+    if (parentIndex < 0) return;
+    removeToolColumns(parentIndex+1);
+  }
   toolPage = page;
-  if (page === 'object') { openProps(anchor,origin); return; }
-  if (page === 'closed') { openClosed(); return; }
-  showPanel('tools',page === 'root' ? '工具' : toolGroups[page],anchor,origin);
+  const body = document.createElement('section');
+  const title = page === 'root' ? '工具' : page === 'object' ? (edge(edgeId) ? '连线' : '文字') :
+    page === 'closed' ? '已关闭草稿' : toolGroups[page];
+  body.className = 'tool-column'; body.tabIndex = -1; body.id = 'tool-column-'+page;
+  body.setAttribute('aria-label',title);
+  const heading = document.createElement('strong'); heading.textContent = title; body.append(heading);
+  if (!owner) {
+    const close = document.createElement('button'); close.className = 'close'; close.type = 'button'; close.textContent = '×';
+    close.setAttribute('aria-label','关闭菜单'); close.onclick = () => closePanel(true); body.append(close);
+  } else owner.setAttribute('aria-expanded','true');
+  panel.append(body); toolColumns.push({page,body,owner}); panel.setAttribute('data-cascade','');
+  if (page === 'object') { openProps(anchor,origin,true); return; }
+  if (page === 'closed') { openClosed(true); return; }
   const branch = (id,label) => {
-    const b = pbutton(label,() => showTools(id),'→'); b.dataset.menuPage = id;
-    b.setAttribute('aria-label',label+'，进入子菜单'); return b;
+    const b = pbutton(label,() => showTools(id,b),'→'); b.dataset.menuPage = id;
+    b.setAttribute('aria-label',label+'，进入子菜单');
+    b.setAttribute('aria-expanded','false');
+    b.setAttribute('aria-controls','tool-column-'+id);
+    return b;
   };
   if (page === 'root') {
     for (const [id,title] of Object.entries(toolGroups)) branch(id,title);
@@ -669,17 +705,17 @@ function showTools(page,focusGroup) {
     setting('悬停拖动等待',() => preferences.hoverDelay+' ms',() => {preferences.hoverDelay = delays[(delays.indexOf(preferences.hoverDelay)+1)%delays.length];});
   }
   focusMenu();
-  if (focusGroup) [...panel.querySelectorAll('[data-menu-page]')].find(b => b.dataset.menuPage === focusGroup)?.focus();
 }
 function backTools() {
-  if (!toolPage || toolPage === 'root') return false;
-  const from = toolPage;
-  if (from === 'object') { showTools('edit','object'); return true; }
-  if (from === 'closed') { showTools('draft','closed'); return true; }
-  showTools('root',from); return true;
+  if (toolColumns.length < 2) return false;
+  const {owner} = toolColumns.at(-1);
+  removeToolColumns(toolColumns.length-1);
+  placePanel();
+  focusMenuItem(owner);
+  return true;
 }
-function openClosed() {
-  showPanel('closed','已关闭草稿',panelAnchor,panelReturn);
+function openClosed(submenu=false) {
+  if (submenu !== true) showPanel('closed','已关闭草稿',panelAnchor,panelReturn);
   const state = workspace.state;
   for (const id of [...state.closedIds].reverse()) { const doc = state.documents.find(d => d.id === id); pbutton(doc.title,() => reopenTab(id)); }
   focusMenu();
@@ -687,7 +723,7 @@ function openClosed() {
 function showHelp() { finishEdit(); closePanel(); $('manual').showModal(); }
 $('save-error').onclick = () => {
   showPanel('save','保存遇到问题'); const text = document.createElement('p'); text.textContent = saveError; panel.append(text);
-  pbutton('重新保存',() => { if (flush()) closePanel(); }); pbutton('导出当前草稿',exportJson);
+  pbutton('重新保存',() => { if (flush()) closePanel(); }); pbutton('导出当前草稿',exportJson); focusMenu();
 };
 $('new-tab').onclick = () => addTab();
 document.querySelector('.pages').addEventListener('pointerdown',e => {
@@ -770,7 +806,9 @@ document.addEventListener('keydown',e => {
       e.preventDefault();
       const index = items.indexOf(document.activeElement), down = key === 'ArrowDown';
       const next = items[index < 0 ? (down ? 0 : items.length-1) : (index+(down ? 1 : items.length-1))%items.length];
-      next.focus(); return;
+      if (toolPage) { focusMenuItem(next); next.scrollIntoView({block:'nearest'}); }
+      else next.focus();
+      return;
     }
     if (key === 'Enter' && e.target.matches('button:not(:disabled)')) {
       e.preventDefault(); if (!e.repeat) e.target.click();

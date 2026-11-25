@@ -134,6 +134,25 @@ header {
   left: var(--menu-x, 7px); top: var(--menu-y, 7px); right: auto;
   max-height: calc(100dvh - 14px);
 }
+#panel[data-cascade] {
+  display: flex; align-items: flex-start; gap: 5px; padding: 0; width: max-content;
+  max-width: calc(100% - 14px); overflow: visible; background: transparent;
+  border: 0; box-shadow: none;
+}
+#panel[data-cascade][hidden] { display: none; }
+#panel .tool-column {
+  position: relative; display: flex; flex-direction: column; gap: 1px; flex: 1 1 220px;
+  width: min(220px, calc((100vw - 24px) / 3)); min-width: 0; outline: none;
+  min-height: 0; max-height: calc(100dvh - 14px); padding: 7px;
+  overflow: auto; scrollbar-width: thin; border: 1px solid #9c714444; border-radius: 6px;
+  background: #f9e5cd; box-shadow: 0 8px 24px #6039181c;
+}
+#panel .tool-column > * { flex-shrink: 0; }
+#panel .tool-column .menu-item span { min-width: 0; overflow-wrap: anywhere; }
+#panel .tool-column .menu-item[aria-expanded="true"] { background: #a4764c18; }
+#panel .tool-column [data-menu-focus] {
+  background: #a4764c2e; outline: 1px solid #956941a0; outline-offset: -1px;
+}
 #panel .menu-item:focus-visible, #panel input:focus-visible, #panel select:focus-visible {
   background: #a4764c25;
 }
