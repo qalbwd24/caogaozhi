@@ -13,10 +13,10 @@ let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null;
 let hover = null, hoverTimer = 0, movable = null, inkHintTimer = 0;
 const panKeys = new Set();
 let keyPanFrame = 0, keyPanAt = null;
-const settingDefaults = {hoverDelay:440,inkHint:true,wallpaper:true};
-let wallpaperAvailable = false;
+const settingDefaults = {hoverDelay:440,inkHint:true};
+let touchpadProbe = null, touchpadProbeTimer = 0;
 let preferences = {...settingDefaults};
-try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; if (typeof saved.wallpaper === 'boolean') preferences.wallpaper = saved.wallpaper; } catch { /* nonessential UI preferences */ }
+try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; } catch { /* nonessential UI preferences */ }
 function savePreferences() { try { localStorage.setItem('caogaozhi.preferences.v1',JSON.stringify(preferences)); } catch { /* retains the choice for this session */ } }
 let wheelDelta = {x:0,y:0}, lastPointer = null, lastRightRelease = -Infinity, viewSaveTimer = 0;
 const dom = new Map(), histories = new Map(), focusMemory = new Map();
@@ -557,7 +557,7 @@ function showTools(page,focusGroup) {
       const value = document.createElement('kbd'); value.textContent = description(); button.append(value);
     };
     setting('换色提示',() => preferences.inkHint ? '开' : '关',() => { preferences.inkHint = !preferences.inkHint; if (!preferences.inkHint) $('ink-hint').hidden = true; });
-    if (wallpaperAvailable) setting('本地壁纸',() => preferences.wallpaper ? '开' : '关',() => { preferences.wallpaper = !preferences.wallpaper; paintWallpaper(); });
+    pbutton('触控板诊断',() => { closePanel(true); beginTouchpadProbe(); },'8 秒');
     const delays = [300,440,650];
     setting('悬停拖动等待',() => preferences.hoverDelay+' ms',() => {preferences.hoverDelay = delays[(delays.indexOf(preferences.hoverDelay)+1)%delays.length];});
   }
@@ -758,6 +758,38 @@ function applyWheelPan() {
     if (workspace && !loading) workspace.updateActive({cam});
   }, 100);
 }
+function touchpadMessage(value) {
+  const feedback = $('touchpad-feedback');
+  feedback.querySelector('span').textContent = value; feedback.hidden = false;
+}
+function beginTouchpadProbe() {
+  clearTimeout(touchpadProbeTimer);
+  touchpadProbe = {both:0,xOnly:0,yOnly:0,axisSwitches:0,lastAxis:'',maxMinorRatio:0};
+  touchpadMessage('请在纸面上双指斜滑，再不抬手拐个弯。8 秒后显示结果。');
+  touchpadProbeTimer = setTimeout(finishTouchpadProbe,8000);
+}
+function collectTouchpadSample(dx,dy) {
+  const probe = touchpadProbe;
+  if (!probe || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+  const x = Math.abs(dx), y = Math.abs(dy), axis = x > 0 && y > 0 ? 'both' : x > 0 ? 'xOnly' : y > 0 ? 'yOnly' : '';
+  if (!axis) return;
+  probe[axis]++;
+  if (probe.lastAxis && probe.lastAxis !== axis) probe.axisSwitches++;
+  if (axis === 'both') probe.maxMinorRatio = Math.max(probe.maxMinorRatio,Math.round(100*Math.min(x,y)/Math.max(x,y)));
+  probe.lastAxis = axis;
+}
+function finishTouchpadProbe() {
+  if (!touchpadProbe) return;
+  clearTimeout(touchpadProbeTimer);
+  const {both,xOnly,yOnly,axisSwitches,maxMinorRatio} = touchpadProbe;
+  touchpadProbe = null;
+  window.paperDesktop?.saveTouchpadProbe?.({both,xOnly,yOnly,axisSwitches,maxMinorRatio}).catch(() => {});
+  const total = both+xOnly+yOnly;
+  touchpadMessage(total ? '触控板诊断：双轴 '+both+' / '+total+'；仅横 '+xOnly+'，仅纵 '+yOnly+'。' : '没有收到滚动位移。请重新开始，再在纸面内双指滑动。');
+}
+$('touchpad-feedback').querySelector('button').onclick = () => {
+  clearTimeout(touchpadProbeTimer); touchpadProbe = null; $('touchpad-feedback').hidden = true;
+};
 paper.addEventListener('wheel',e => {
   e.preventDefault();
   const mode = e.deltaMode;
@@ -765,6 +797,7 @@ paper.addEventListener('wheel',e => {
   const dx = e.deltaX*(mode === 1 ? 18 : mode === 2 ? paper.clientWidth : 1);
   const dy = e.deltaY*(mode === 1 ? 18 : mode === 2 ? paper.clientHeight : 1);
   if (e.ctrlKey || e.metaKey) { zoom(cam.z*Math.exp(-dy*.006),relative(e.clientX,e.clientY)); return; }
+  if (e.isTrusted) collectTouchpadSample(dx,dy);
   // Consume X and Y as supplied; never filter, swap or favor either axis in the app.
   wheelDelta.x += dx; wheelDelta.y += dy;
   if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheelPan);
@@ -942,12 +975,6 @@ window.addEventListener('beforeprint',() => {
   paper.style.setProperty('--print-w',Math.ceil((w+pad*2)*z)+'px'); paper.style.setProperty('--print-h',Math.ceil((h+pad*2)*z)+'px');
   paper.style.setProperty('--print-t','translate('+((pad-x)*z)+'px,'+((pad-y)*z)+'px) scale('+z+')');
 });
-function paintWallpaper() { $('paper-wallpaper').hidden = !wallpaperAvailable || !preferences.wallpaper; }
-window.paperDesktop?.loadWallpaper?.().then(data => {
-  if (typeof data !== 'string' || !data.startsWith('data:image/png;base64,')) return;
-  const layer = $('paper-wallpaper'); layer.style.backgroundImage = 'url(' + JSON.stringify(data) + ')';
-  wallpaperAvailable = true; paintWallpaper();
-}).catch(() => {});
 let storage, hadWorkspace = false;
 try { storage = window.localStorage; hadWorkspace = !!storage.getItem(PaperWorkspace.DEFAULT_KEY); } catch (error) { reportSaveError(error); }
 workspace = PaperWorkspace.create({storage,normalize,makeId:newId,onError:reportSaveError});

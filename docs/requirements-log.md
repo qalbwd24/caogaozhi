@@ -38,3 +38,10 @@
 - 手写识别、打印回导、同步、数学专用输入、AI 分析和跨重启编辑历史仍未交付。JSON 导出是当前草稿，不是所有标签的完整工作区备份；整块选字改色不等同跨多个文字块框选。
 
 本轮 Windows Electron 隔离回归覆盖半途换笔、移光标保持笔色、鼠标拖选及单步撤销、F19 进入／退出子菜单、快速拖动连线、悬停拖块、双方向键与双轴事件、淡点阵和本地壁纸加载。浏览器输入注入不是实体手势测试。[Chromium Windows 输入实现](https://chromium.googlesource.com/chromium/src/+/HEAD/content/browser/renderer_host/direct_manipulation_helper_win.cc) 可作为原生锁轴调查入口。
+
+### 同日勘误：暖纸不是图案壁纸，实体触控板仍锁轴
+
+- 实际体验反馈：要的是暖色纸张自身的细纹理，不是借用有图案的壁纸。撤下本地壁纸图层和图片读取；底色改为暖米纸，叠加不带图形的细纤维纹，淡棕固定点阵保留。前一节的本机壁纸试做已经被这一决定覆盖。
+- 用户实机确认双指斜移仍会被吸成单轴。此前合成双轴事件只验证了画布处理，不能代表实体触控板。实际运行时为 Chromium 156.0.8078.109；[这一版本的 Windows helper](https://github.com/chromium/chromium/blob/156.0.8078.109/content/browser/renderer_host/direct_manipulation_helper_win.cc#L74-L84) 在应用收到输入前开启了两项 DirectManipulation 锁轴配置。
+- 新增 F19 → 设置 → 触控板诊断。用户主动触发后只汇总八秒内浏览器收到的单轴和双轴位移事件，将最近一次计数保存在本机，不收集原始坐标、按键或草稿，也不上传。模拟数据验证统计入口；实体采样和原生修复仍待验证。
+- [原生去锁轴候选补丁](../desktop/patches/chromium-windows-touchpad-unrail.patch) 仅用于后续独立构建：保留横纵位移、惯性和捏合，移除两项锁轴。补丁不是现有便携版，也不更改系统级设置；上线前先在同一台实体电脑测试斜滑、不抬手变向、捏合和普通鼠标。

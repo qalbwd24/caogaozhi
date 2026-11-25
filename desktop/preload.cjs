@@ -2,7 +2,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('paperDesktop',Object.freeze({
   saveScreenshot:()=>ipcRenderer.invoke('paper:save-screenshot'),
-  loadWallpaper:()=>ipcRenderer.invoke('paper:local-wallpaper'),
+  saveTouchpadProbe:(summary)=>ipcRenderer.invoke('paper:save-touchpad-probe',summary),
   onTools:(callback)=>{
     if(typeof callback!=='function')return ()=>{};
     const listener=()=>callback();

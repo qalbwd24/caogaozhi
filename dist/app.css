@@ -1,7 +1,7 @@
 :root {
   font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   color-scheme: light;
-  --paper: #fce3bf;
+  --paper: #f7e3c5;
   --chrome: #fae5ca;
   --ink: #382a22;
   --muted: #7a624e;
@@ -28,16 +28,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, .hit:focus-visi
 [hidden] { display: none !important; }
 .row { display: flex; align-items: center; gap: 3px; }
 #surface { position: fixed; inset: 0; overflow: hidden; background: var(--paper); isolation: isolate; }
-/* One continuous, warm paper surface. No separate white input cards. */
+/* Warm paper and fine procedural fibers, never an illustration or photograph. */
 #surface::after {
   content: ''; position: absolute; inset: var(--head) 0 0; z-index: 0; pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.24' filter='url(%23p)'/%3E%3C/svg%3E");
-  opacity: .25;
-}
-#paper-wallpaper {
-  position: absolute; inset: var(--head) 0 0; z-index: 0; pointer-events: none;
-  background: center / cover no-repeat; opacity: .26;
-  filter: grayscale(.8) contrast(.84) sepia(.25);
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20224%20224%22%3E%3Cdefs%3E%3Cfilter%20id%3D%22grain%22%20color-interpolation-filters%3D%22sRGB%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%22.73%22%20numOctaves%3D%223%22%20seed%3D%227%22%20stitchTiles%3D%22stitch%22%2F%3E%3CfeColorMatrix%20type%3D%22matrix%22%20values%3D%220%200%200%200%20.62%200%200%200%200%20.43%200%200%200%200%20.27%20.79%200%200%200%20-.19%22%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%22224%22%20height%3D%22224%22%20filter%3D%22url(%23grain)%22%2F%3E%3C%2Fsvg%3E");
+  background-size: 224px 224px;
+  opacity: .34;
+  mix-blend-mode: multiply;
 }
 header {
   height: var(--head); position: relative; z-index: 5;
@@ -112,6 +109,14 @@ header {
   color: var(--ink); background: #fff4e2; border: 1px solid var(--line);
   border-radius: 5px; box-shadow: 0 3px 10px #5f41171a; font-size: 12px; pointer-events: none;
 }
+#touchpad-feedback {
+  position: absolute; z-index: 10; bottom: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px);
+  padding: 6px 9px 6px 12px; font-size: 12px; line-height: 1.45;
+  background: #fff4e2; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 3px 12px #5f41171d;
+}
+#touchpad-feedback button { flex: none; min-height: 26px; color: var(--accent); }
 #ink-hint::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--hint-ink); }
 #panel .level-back { color: var(--accent); font-size: 12px; text-align: left; margin-right: 31px; }
 .note.sticky { padding: 6px 9px; background: #eccb7f33; }
@@ -165,7 +170,7 @@ dialog form { text-align: right; margin-top: 18px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 @media print {
   html, body, #surface { height: auto; position: static; overflow: visible; background: white; }
-  header, #panel, #ink-hint, #paper-wallpaper, dialog, .port, #surface::after, .sr-only { display: none !important; }
+  header, #panel, #ink-hint, #touchpad-feedback, dialog, .port, #surface::after, .sr-only { display: none !important; }
   #paper { position: relative; background: white; overflow: visible; inset: auto; width: var(--print-w,100%); height: var(--print-h,auto); }
   #board { transform: var(--print-t,none) !important; }
   .note::before { display: none; }

@@ -2,7 +2,7 @@
 const {app, BrowserWindow, Menu, session, dialog, ipcMain}=require('electron');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
-const {open,writeFile}=require('node:fs/promises');
+const {writeFile}=require('node:fs/promises');
 
 app.setName('草稿纸');
 app.setPath('userData',path.join(app.getPath('appData'),'Caogaozhi'));
@@ -36,7 +36,7 @@ function openPaper(){
   if(mainWindow) return;
   mainWindow=new BrowserWindow({
     title:'草稿纸', width:1120,height:770, minWidth:580,minHeight:475,
-    show:false, backgroundColor:'#fce3bf',icon:path.join(__dirname,'icon.png'),
+    show:false, backgroundColor:'#f7e3c5',icon:path.join(__dirname,'icon.png'),
     webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,spellcheck:false,preload:path.join(__dirname,'preload.cjs')}
   });
   mainWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -86,19 +86,17 @@ else{
          event.senderFrame?.url.split('?')[0]!==paperURL)return false;
       return saveScreenshot(mainWindow);
     });
-    ipcMain.handle('paper:local-wallpaper',async(event)=>{
+    ipcMain.handle('paper:save-touchpad-probe',async(event,value)=>{
       if(!mainWindow||event.sender!==mainWindow.webContents||
-         event.senderFrame?.url.split('?')[0]!==paperURL)return null;
-      let handle;
+         event.senderFrame?.url.split('?')[0]!==paperURL)return false;
+      const keys=['both','xOnly','yOnly','axisSwitches','maxMinorRatio'];
+      if(!value||!keys.every(k=>Number.isSafeInteger(value[k])&&value[k]>=0&&value[k]<=100000)||value.maxMinorRatio>100)return false;
+      const summary=Object.fromEntries(keys.map(k=>[k,value[k]]));
       try {
-        handle=await open(path.join(app.getPath('userData'),'paper-wallpaper.png'),'r');
-        const meta=await handle.stat();
-        if(!meta.isFile()||meta.size<24||meta.size>8_000_000)return null;
-        const data=await handle.readFile();
-        if(data.length>8_000_000||data.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')return null;
-        return 'data:image/png;base64,'+data.toString('base64');
-      } catch { return null; }
-      finally { if(handle)await handle.close().catch(()=>{}); }
+        await writeFile(path.join(app.getPath('userData'),'touchpad-diagnostic.json'),
+          JSON.stringify({at:new Date().toISOString(),...summary})+'\n');
+        return true;
+      } catch { return false; }
     });
     session.defaultSession.setPermissionRequestHandler((_contents,_permission,respond)=>respond(false));
     session.defaultSession.setPermissionCheckHandler(()=>false);
