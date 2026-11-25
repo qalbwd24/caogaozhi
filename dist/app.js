@@ -846,8 +846,15 @@ document.addEventListener('keydown',e => {
   if (e.isComposing || e.keyCode === 229 || editing?.controller?.isComposing(e)) return;
   if (cmd && k === 's' && !e.shiftKey) { e.preventDefault(); flush(); return; }
   const inPanel = !panel.hidden && panel.contains(e.target);
-  if (key === 'F19' || e.code === 'F19' || e.keyCode === 130) {
-    if (!cmd) { e.preventDefault(); if (!e.repeat) toggleTools(); }
+  if (key === 'Escape') {
+    if (cmd || e.shiftKey || dialogOpen() || renaming || (!inPanel && field)) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    if (!panel.hidden) closePanel(true);
+    else if (source || gesture || pinch || preview) {
+      cancelMoveIfActive(); gesture = pinch = preview = null; source = null; points.clear();
+      clearGestureCursor(); clearHover(); render();
+    } else toggleTools();
     return;
   }
   if ((key === 'ContextMenu' || (key === 'F10' && e.shiftKey)) && !dialogOpen() && (!field || inPanel)) {
@@ -856,7 +863,6 @@ document.addEventListener('keydown',e => {
     return;
   }
   if (inPanel) {
-    if (key === 'Escape') { e.preventDefault(); closePanel(true); return; }
     if (toolPage && !cmd) {
       if (key === 'ArrowRight' && e.target.dataset.menuPage) { e.preventDefault(); e.target.click(); return; }
       if (key === 'ArrowLeft' && !e.target.matches('input') && backTools()) { e.preventDefault(); return; }
@@ -897,12 +903,6 @@ document.addEventListener('keydown',e => {
   if (e.target.closest?.('#tabs') && ['ArrowLeft','ArrowRight'].includes(key)) {
     e.preventDefault(); nextTab(key === 'ArrowLeft' ? -1 : 1); $('tabs').querySelector('[aria-selected="true"]')?.focus(); return;
   }
-  if (key === 'Escape') {
-    e.preventDefault(); const id = editing?.id;
-    finishEdit(); source = null; preview = null; closePanel();
-    if (!id) { selected = null; edgeId = null; }
-    paper.focus({preventScroll:true}); render(); return;
-  }
   if (e.target.closest?.('button') || e.target.closest?.('#panel')) return;
   if (source && !editing && (key === 'Enter' || key === 'Tab')) {
     e.preventDefault();
@@ -939,7 +939,6 @@ document.addEventListener('keyup',e => {
 });
 // The native bridge transports legacy -1/+1 values for F17/F18.
 window.paperDesktop?.onColorStep?.(direction => stepPaperShortcut(direction === -1 ? 'F17' : 'F18'));
-window.paperDesktop?.onTools?.(toggleTools);
 
 function queueWheelMotion(dx,dy,scale=0,anchor=null) {
   if (preferences.zoomLocked) scale = 0;
@@ -972,7 +971,7 @@ function touchpadMessage(value) {
   feedback.querySelector('span').textContent = value; feedback.hidden = false;
 }
 async function runShortcutProbe() {
-  touchpadMessage('接下来 8 秒：在草稿纸里把有问题的 Caps 组合连续按两次。只统计 F17–F19。');
+  touchpadMessage('接下来 8 秒：在草稿纸里把有问题的 Caps 组合连续按两次。只统计 F17 和 F18。');
   try {
     const result = await window.paperDesktop.probeShortcuts();
     if (!result) return;

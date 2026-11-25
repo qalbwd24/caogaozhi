@@ -35,7 +35,7 @@ async function saveScreenshot(win){
 
 function shortcutName(key,code) {
   const value=[String(key || '').toUpperCase(),String(code || '').toUpperCase()];
-  return value.find(k => k==='F17'||k==='F18'||k==='F19');
+  return value.find(k => k==='F17'||k==='F18');
 }
 function noteShortcut(name,input,dispatched=false) {
   if (!name || !keyProbe) return;
@@ -81,10 +81,6 @@ function openPaper(){
       if(!input.isAutoRepeat){noteShortcut(fn,input,true);mainWindow.webContents.send('paper:color-step',direction);}
       return;
     }
-    if(!input.isComposing&&!input.control&&!input.meta&&(key==='f19'||code==='f19')){
-      event.preventDefault();
-      if(!input.isAutoRepeat){noteShortcut(fn,input,true);mainWindow.webContents.send('paper:tools');}
-    }
   });
   attachWindowsTouchpad(mainWindow,screen);
   mainWindow.once('ready-to-show',()=>mainWindow?.show());
@@ -105,8 +101,7 @@ else{
       if(keyProbe || !w || event.sender!==w.webContents ||
          event.senderFrame!==w.webContents.mainFrame || event.senderFrame?.url.split('?')[0]!==paperURL) return null;
       const probe={F17:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0},
-        F18:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0},
-        F19:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0}};
+        F18:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0}};
       keyProbe=probe;
       await new Promise(resolve=>setTimeout(resolve,8000));
       if(keyProbe===probe)keyProbe=null;

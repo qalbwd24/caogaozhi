@@ -104,7 +104,7 @@ test('Tab grows through three levels; Enter creates a sibling with the same pare
 test('returning to an existing block can immediately grow another child', async t => {
   const page = await pageFor(t);
   await writeFirst(page, '已有想法');
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('Enter');
   await page.locator('.note').filter({ hasText: '已有想法' }).click();
   await page.keyboard.press('Tab');
   await page.keyboard.insertText('补充的新分支');
@@ -140,6 +140,8 @@ test('switching the next pen color preserves existing text; F19/F20 are not cons
   let state = await app(page);
   assert.deepEqual(state.model.nodes[0].runs, [{ text: '正文', color: 'black' }, { text: '提醒', color: 'red' }]);
   await functionKey(page, 'F19');
+  assert.equal(await page.locator('#panel').isVisible(), false);
+  await page.keyboard.press('Escape');
   assert.equal(await page.locator('#panel .menu-item').first().textContent(), '笔颜色→');
   await page.keyboard.press('Escape');
   await functionKey(page, 'F20');
@@ -206,7 +208,7 @@ test('independent tabs can be named, closed, reopened and restored after reload'
   assert.equal((await app(page)).model.nodes[0].text, '第二张的内容');
   await page.locator('.tab.active .tab-close').click();
   assert.equal(await page.locator('#tabs [role="tab"]').count(), 1);
-  await functionKey(page, 'F19');
+  await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'草稿与标签，进入子菜单'}).click();
   await page.getByRole('button',{name:/恢复最近关闭/}).click();
   assert.equal(await page.locator('#tabs [role="tab"]').count(), 2);
@@ -283,4 +285,27 @@ test('editing stays on paper without a boxed input, placeholder, or corner tools
   assert.equal(appearance.outline, 'none');
   assert.equal(appearance.placeholder, null);
   assert.equal(await page.locator('#status, #controls, #dock, #toast').count(), 0);
+});
+
+test('Esc toggles tools without finishing the selected text, and ignores IME and held repeats', async t => {
+  const page = await pageFor(t);
+  await writeFirst(page,'保留这段选区');
+  await selectText(page,2,4);
+  for (const extra of [{isComposing:true},{repeat:true}]) {
+    await page.locator('.editor').dispatchEvent('keydown',{key:'Escape',bubbles:true,cancelable:true,...extra});
+    assert.equal(await page.locator('#panel').isVisible(),false);
+  }
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#panel .menu-item:focus').textContent(),'笔颜色→');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.locator('#panel .tool-column').count(),2);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#panel').isVisible(),false);
+  assert.deepEqual(await page.evaluate(() => {
+    const {start,end}=editing.controller.getSelection();
+    return [document.activeElement===editing.host,start,end];
+  }),[true,2,4]);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#panel').isVisible(),false);
 });

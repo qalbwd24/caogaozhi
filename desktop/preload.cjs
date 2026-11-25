@@ -16,12 +16,6 @@ contextBridge.exposeInMainWorld('paperDesktop',Object.freeze({
       if([dx,dy,zoom].every(Number.isFinite))callback(dx,dy,zoom,x,y);
     });
   },
-  onTools:(callback)=>{
-    if(typeof callback!=='function')return ()=>{};
-    const listener=()=>callback();
-    ipcRenderer.on('paper:tools',listener);
-    return ()=>ipcRenderer.removeListener('paper:tools',listener);
-  },
   onColorStep:(callback)=>{
     if(typeof callback!=='function')return ()=>{};
     const listener=(_event,direction)=>{
