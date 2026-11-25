@@ -1,6 +1,9 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const paper = $('paper'), board = $('board'), noteLayer = $('notes'), svg = $('links'), panel = $('panel');
+const paperGrid = document.createElement('div');
+paperGrid.id = 'paper-grid'; paperGrid.setAttribute('aria-hidden','true'); paper.prepend(paperGrid);
+let drawnGridStep = NaN;
 const inks = {black:['#322b25','黑 · 正文'],red:['#ad3536','红 · 重点、易错'],blue:['#285f94','蓝 · 启发、观点'],gray:['#796e61','铅 · 想法、待定']};
 const colors = Object.keys(inks);
 const inkCaptions = {black:'黑:正文',red:'红:重点',blue:'蓝:新颖',gray:'铅:待定'};
@@ -14,12 +17,13 @@ let workspace, loading = true, drawFrame = 0, wheelFrame = 0, saveError = '', re
 let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null, toolEditorSelection = null;
 const toolColumns = [];
 let hover = null, hoverTimer = 0, movable = null, inkHintTimer = 0;
-const settingDefaults = {hoverDelay:440,inkHint:true,lineStyle:'solid'};
+const settingDefaults = {hoverDelay:440,inkHint:true,lineStyle:'solid',zoomLocked:false};
 let touchpadProbe = null, touchpadProbeTimer = 0;
 let preferences = {...settingDefaults};
-try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; if (saved.lineStyle === 'dash') preferences.lineStyle = 'dash'; } catch { /* nonessential UI preferences */ }
+try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; if (saved.lineStyle === 'dash') preferences.lineStyle = 'dash'; if (typeof saved.zoomLocked === 'boolean') preferences.zoomLocked = saved.zoomLocked; } catch { /* nonessential UI preferences */ }
 function savePreferences() { try { localStorage.setItem('caogaozhi.preferences.v1',JSON.stringify(preferences)); } catch { /* retains the choice for this session */ } }
-let wheelDelta = {x:0,y:0}, lastPointer = null, lastRightRelease = -Infinity, viewSaveTimer = 0;
+const wheelMotion = [];
+let lastPointer = null, viewSaveTimer = 0;
 const dom = new Map(), histories = new Map(), focusMemory = new Map();
 const node = id => model.nodes.find(n => n.id === id);
 const edge = id => model.edges.find(e => e.id === id);
@@ -131,21 +135,33 @@ function paperGridFor(camera) {
 }
 function camera(save = true) {
   const g = paperGridFor(cam);
-  paper.style.setProperty('--paper-grid-step', g.step + 'px');
-  paper.style.setProperty('--paper-grid-x', g.x + 'px');
-  paper.style.setProperty('--paper-grid-y', g.y + 'px');
+  if (drawnGridStep !== g.step) {
+    paperGrid.style.setProperty('--paper-grid-step', g.step + 'px');
+    drawnGridStep = g.step;
+  }
+  paperGrid.style.transform = 'translate3d(' + g.x + 'px,' + g.y + 'px,0)';
   board.style.transform = 'translate3d(' + cam.x + 'px,' + cam.y + 'px,0) scale(' + cam.z + ')';
   const fitLabel = Math.round(cam.z * 100) + '%', fitControl = $('fit');
+  const fitTitle = preferences.zoomLocked ? '缩放已锁定 · 居中画布' : '显示全部 · Ctrl+0';
+  if (fitControl.title !== fitTitle) fitControl.title = fitTitle;
   if (fitControl.textContent !== fitLabel) fitControl.textContent = fitLabel;
   if (save && workspace && !loading) workspace.updateActive({cam});
 }
 function relative(x,y) { const b = paper.getBoundingClientRect(); return {x:x-b.left,y:y-b.top}; }
 function world(x,y) { const p = relative(x,y); return {x:(p.x-cam.x)/cam.z,y:(p.y-cam.y)/cam.z}; }
 function center() { return {x:paper.clientWidth/2,y:paper.clientHeight/2}; }
-function zoom(z,p) {
-  applyWheelPan();
+function zoomCamera(camera,z,p) {
+  if (preferences.zoomLocked) return;
   z = Math.min(3,Math.max(.2,z));
-  cam.x = p.x - (p.x-cam.x)*z/cam.z; cam.y = p.y - (p.y-cam.y)*z/cam.z; cam.z = z; camera();
+  if (z === camera.z) return;
+  camera.x = p.x - (p.x-camera.x)*z/camera.z;
+  camera.y = p.y - (p.y-camera.y)*z/camera.z;
+  camera.z = z;
+}
+function zoom(z,p) {
+  if (preferences.zoomLocked) return;
+  const factor = z/cam.z;
+  applyWheelPan(); zoomCamera(cam,cam.z*factor,p); camera();
 }
 function size(n) { const d = dom.get(n.id); return {x:n.x,y:n.y,w:d?.offsetWidth || 220,h:d?.offsetHeight || 32}; }
 function svgEl(tag,attrs) { const t = document.createElementNS('http://www.w3.org/2000/svg',tag); Object.entries(attrs).forEach(([k,v]) => t.setAttribute(k,v)); return t; }
@@ -158,13 +174,30 @@ function drawParallelGuides() {
   }
   for (const members of groups.values()) {
     if (members.length < 2) continue;
-    const rows = members.map(n => ({x:n.x,y:n.y+Math.min(16,size(n).h/2)})).sort((a,b) => a.y-b.y);
-    const x = Math.min(...rows.map(p => p.x))-15;
-    const path = ['M',x,rows[0].y,'V',rows.at(-1).y];
-    for (const row of rows) {
-      // Keep the guide low-key and avoid long horizontal runs on uneven imported groups.
-      if (row.x-x <= 45) path.push('M',x,row.y,'H',row.x-7);
+    const boxes = members.map(size);
+    const xs = boxes.map(r => r.x+r.w/2), ys = boxes.map(r => r.y+r.h/2);
+    const byX = Math.max(...xs)-Math.min(...xs) > (Math.max(...ys)-Math.min(...ys))*1.15;
+    boxes.sort((a,b) => byX ? a.x+a.w/2-b.x-b.w/2 || a.y-b.y : a.y+a.h/2-b.y-b.h/2 || a.x-b.x);
+    const path = [];
+    for (let i=1;i<boxes.length;i++) {
+      const a=boxes[i-1], b=boxes[i];
+      const ax=a.x+a.w/2,ay=a.y+a.h/2,bx=b.x+b.w/2,by=b.y+b.h/2;
+      if (bx-a.x-a.w>0 && (b.x>a.x+a.w+8 || Math.abs(bx-ax)>Math.abs(by-ay)*1.4)) {
+        const x1=a.x+a.w+4,x2=b.x-4,m=(x1+x2)/2;
+        if (x2>x1) { path.push('M',x1,ay,'C',m,ay,m,by,x2,by); continue; }
+      }
+      if (b.y>=a.y+a.h+8) {
+        const y1=a.y+a.h+4,y2=b.y-4,m=(y1+y2)/2;
+        path.push('M',ax,y1,'C',ax,m,bx,m,bx,y2);
+      } else if (a.x>=b.x+b.w+8) {
+        const x1=a.x-4,x2=b.x+b.w+4,m=(x1+x2)/2;
+        path.push('M',x1,ay,'C',m,ay,m,by,x2,by);
+      } else if (a.y>=b.y+b.h+8) {
+        const y1=a.y-4,y2=b.y+b.h+4,m=(y1+y2)/2;
+        path.push('M',ax,y1,'C',ax,m,bx,m,bx,y2);
+      }
     }
+
     fragment.append(svgEl('path',{class:'parallel-guide',d:path.join(' ')}));
   }
   layer.replaceChildren(fragment);
@@ -172,10 +205,10 @@ function drawParallelGuides() {
 function scheduleDraw() { if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = 0; drawParallelGuides(); draw(); }); }
 function fit() {
   applyWheelPan();
-  if (!model.nodes.length) { cam = {x:0,y:0,z:1}; camera(); return; }
+  if (!model.nodes.length) { cam = {x:0,y:0,z:preferences.zoomLocked ? cam.z : 1}; camera(); return; }
   const boxes = model.nodes.map(size), x = Math.min(...boxes.map(n => n.x)), y = Math.min(...boxes.map(n => n.y));
   const w = Math.max(...boxes.map(n => n.x+n.w))-x, h = Math.max(...boxes.map(n => n.y+n.h))-y, pad = 55;
-  cam.z = Math.max(.2,Math.min(1,(paper.clientWidth-pad*2)/Math.max(1,w),(paper.clientHeight-pad*2)/Math.max(1,h)));
+  if (!preferences.zoomLocked) cam.z = Math.max(.2,Math.min(1,(paper.clientWidth-pad*2)/Math.max(1,w),(paper.clientHeight-pad*2)/Math.max(1,h)));
   cam.x = (paper.clientWidth-w*cam.z)/2-x*cam.z; cam.y = (paper.clientHeight-h*cam.z)/2-y*cam.z; camera();
 }
 function reveal(n) {
@@ -251,6 +284,7 @@ function openEditor(n,selection,point) {
   });
   editing.controller = controller;
   controller.focus({end:true});
+  window.paperDesktop?.preferChineseAtFirstEdit?.();
   if (selection) controller.setSelection(selection.start,selection.end,selection.direction);
   else if (point) {
     const range = document.caretRangeFromPoint?.(point.x,point.y);
@@ -306,7 +340,10 @@ function extend(kind) {
   if (kind === 'child') newNote(n.x+s.w+78,n.y,{parent:n.id,child:true,arrow:'single',place:true,before});
   else {
     n.parallelId ||= newId();
-    newNote(n.x,n.y+s.h+20,{parent:n.parentId || null,child:!!n.parentId,arrow:n.parentId ? 'single' : 'none',order,parallelId:n.parallelId,place:true,before});
+    const members = model.nodes.filter(item => item.parallelId === n.parallelId).map(size);
+    const viewport = {x:-cam.x/cam.z,y:-cam.y/cam.z,w:paper.clientWidth/cam.z,h:paper.clientHeight/cam.z};
+    const place = PaperParallelPlacement.siblingSpot(s,members,model.nodes.map(size),{width:Math.max(150,Math.min(220,s.w)),height:34,viewport});
+    newNote(place.x,place.y,{parent:n.parentId || null,child:!!n.parentId,arrow:n.parentId ? 'single' : 'none',order,parallelId:n.parallelId,before});
   }
 }
 function selectNode(id) {
@@ -345,12 +382,20 @@ function placeInkHint() {
   tip.style.left = clamp(x,v.left+6,v.right-width-6)-s.left+'px';
   tip.style.top = clamp(y,v.top+6,v.bottom-height-6)-s.top+'px';
 }
-function showActionHint(c,scope,label,display=scope + ' · ' + label) {
+function showActionHint(c,scope,label,display=scope + ' · ' + label,force=false) {
   announce(scope + '：' + label);
-  if (!preferences.inkHint) return;
+  if (!preferences.inkHint && !force) return;
   const tip = $('ink-hint'); tip.style.setProperty('--hint-ink',inks[c][0]);
   tip.querySelector('span').textContent = display; tip.hidden = false; placeInkHint();
   clearTimeout(inkHintTimer); inkHintTimer = setTimeout(() => { tip.hidden = true; },1050);
+}
+function toggleZoomLock() {
+  applyWheelPan();
+  preferences.zoomLocked = !preferences.zoomLocked;
+  savePreferences();
+  closePanel(true); camera(false);
+  const label = preferences.zoomLocked ? '已锁定 ' + Math.round(cam.z*100) + '%' : '已解除锁定';
+  showActionHint(ink,'缩放',label,'缩放' + label,true);
 }
 function showInkHint(c,scope='笔色') { showActionHint(c,scope,inkCaptions[c],inkCaptions[c]); }
 function applyTypingInk(c) {
@@ -553,6 +598,12 @@ function openProps(anchor=null,returnTo=document.activeElement,submenu=false) {
     pbutton('删除连线',removeSelection,'Delete',false,'trash');
   } else {
     pbutton('继续编辑',() => { closePanel(); openEditor(n); });
+    const sticky = pbutton(n.sticky ? '去掉便签背景' : '添加便签背景',() => {
+      const before = capture();
+      if (n.sticky) delete n.sticky; else n.sticky = true;
+      changed(before); closePanel(true); render();
+    },n.sticky ? '已开启' : '');
+    sticky.setAttribute('aria-pressed',String(!!n.sticky));
     pbutton('新建子块',() => { closePanel(); extend('child'); },'Tab');
     pbutton('新建同级',() => { closePanel(); extend('sibling'); },'Enter');
     pbutton('从这里连线',() => startLink(n.id));
@@ -654,7 +705,15 @@ function showTools(page,owner=null) {
     return b;
   };
   if (page === 'root') {
-    for (const [id,title] of Object.entries(toolGroups)) branch(id,title);
+    for (const [id,title] of Object.entries(toolGroups)) {
+      branch(id,title);
+      if (id === 'line') {
+        const locked = preferences.zoomLocked;
+        const button = pbutton(locked ? '解除缩放锁定' : '锁定当前缩放',toggleZoomLock,
+          (locked ? '已锁定 · ' : '未锁定 · ') + Math.round(cam.z*100) + '%');
+        button.setAttribute('aria-pressed',String(locked));
+      }
+    }
     pbutton('快捷键与操作',showHelp,'F1');
   } else if (page === 'ink') {
     for (const c of colors) {
@@ -692,8 +751,8 @@ function showTools(page,owner=null) {
     if (window.paperDesktop) pbutton('保存截图',() => {closePanel();window.paperDesktop.saveScreenshot();},'Ctrl+Shift+S');
   } else if (page === 'view') {
     pbutton('显示全部',() => {closePanel(true);fit();},'Ctrl+0');
-    pbutton('放大',() => {closePanel(true);zoom(cam.z*1.15,center());},'Ctrl++');
-    pbutton('缩小',() => {closePanel(true);zoom(cam.z/1.15,center());},'Ctrl+-');
+    pbutton('放大',() => {closePanel(true);zoom(cam.z*1.15,center());},'Ctrl++',preferences.zoomLocked);
+    pbutton('缩小',() => {closePanel(true);zoom(cam.z/1.15,center());},'Ctrl+-',preferences.zoomLocked);
     pbutton('新标签查看示例',() => addTab(example(),'示例'));
   } else if (page === 'settings') {
     const setting = (label,description,apply) => {
@@ -702,6 +761,7 @@ function showTools(page,owner=null) {
     };
     setting('换色提示',() => preferences.inkHint ? '开' : '关',() => { preferences.inkHint = !preferences.inkHint; if (!preferences.inkHint) $('ink-hint').hidden = true; });
     pbutton('触控板诊断',() => { closePanel(true); beginTouchpadProbe(); },'8 秒');
+    if (window.paperDesktop?.probeShortcuts) pbutton('快捷键诊断',() => { closePanel(true); void runShortcutProbe(); },'8 秒');
     const delays = [300,440,650];
     setting('悬停拖动等待',() => preferences.hoverDelay+' ms',() => {preferences.hoverDelay = delays[(delays.indexOf(preferences.hoverDelay)+1)%delays.length];});
   }
@@ -856,7 +916,14 @@ document.addEventListener('keydown',e => {
       const parent = node(node(editing?.id || selected)?.parentId); e.preventDefault();
       if (parent) { finishEdit(); selectNode(parent.id); openEditor(parent); } return;
     }
-    if (key === 'Enter' && !e.shiftKey) { e.preventDefault(); extend('sibling'); return; }
+    if (key === 'Enter' && !e.shiftKey) {
+      e.preventDefault(); if (e.repeat) return;
+      if (editing) {
+        const id = editing.id; finishEdit();
+        (dom.get(id) || paper).focus({preventScroll:true});
+      } else extend('sibling');
+      return;
+    }
     if (key === 'Enter' && e.shiftKey && editing) { e.preventDefault(); editing.controller.insertText('\n'); return; }
   }
   if (editing) return;
@@ -874,11 +941,26 @@ document.addEventListener('keyup',e => {
 window.paperDesktop?.onColorStep?.(direction => stepPaperShortcut(direction === -1 ? 'F17' : 'F18'));
 window.paperDesktop?.onTools?.(toggleTools);
 
+function queueWheelMotion(dx,dy,scale=0,anchor=null) {
+  if (preferences.zoomLocked) scale = 0;
+  if (!(dx || dy || scale)) return;
+  const last = wheelMotion.at(-1);
+  if (!scale && last && !last.scale) { last.dx += dx; last.dy += dy; }
+  else wheelMotion.push({dx,dy,scale,anchor});
+  if (!wheelFrame) wheelFrame = requestAnimationFrame(() => { wheelFrame = 0; applyWheelPan(); });
+}
 function applyWheelPan() {
   if (wheelFrame) { cancelAnimationFrame(wheelFrame); wheelFrame = 0; }
-  if (!wheelDelta.x && !wheelDelta.y) return;
-  cam.x -= wheelDelta.x; cam.y -= wheelDelta.y; wheelDelta = {x:0,y:0}; camera(false);
-  // The viewport follows each frame; write the view once the gesture settles.
+  if (!wheelMotion.length) return;
+  // Keep the order of different zoom origins and apply translation before zoom
+  // within each native packet. Only publish the final camera once per frame.
+  for (const {dx,dy,scale,anchor} of wheelMotion) {
+    cam.x += dx; cam.y += dy;
+    if (scale) zoomCamera(cam,cam.z*Math.exp(scale),anchor);
+  }
+  wheelMotion.length = 0;
+  camera(false);
+  // The viewport follows each display frame; save once the gesture settles.
   if (viewSaveTimer) clearTimeout(viewSaveTimer);
   viewSaveTimer = setTimeout(() => {
     viewSaveTimer = 0;
@@ -888,6 +970,15 @@ function applyWheelPan() {
 function touchpadMessage(value) {
   const feedback = $('touchpad-feedback');
   feedback.querySelector('span').textContent = value; feedback.hidden = false;
+}
+async function runShortcutProbe() {
+  touchpadMessage('接下来 8 秒：在草稿纸里把有问题的 Caps 组合连续按两次。只统计 F17–F19。');
+  try {
+    const result = await window.paperDesktop.probeShortcuts();
+    if (!result) return;
+    const summary = Object.entries(result).map(([k,n]) => k+' 按下'+n.down+'/松开'+n.up+'/转发'+n.used+(n.repeat?' (重复'+n.repeat+')':''));
+    touchpadMessage(summary.join(' · '));
+  } catch { touchpadMessage('未能完成快捷键诊断。'); }
 }
 function beginTouchpadProbe() {
   clearTimeout(touchpadProbeTimer);
@@ -921,12 +1012,8 @@ window.paperDesktop?.onTouchpad?.((dx,dy,scale,x,y) => {
   if (loading || gesture || !$('panel').hidden) return;
   clearHover();
   collectTouchpadSample(dx,dy,'native');
-  wheelDelta.x -= dx; wheelDelta.y -= dy;
-  if (scale) {
-    applyWheelPan();
-    const at = Number.isFinite(x) && Number.isFinite(y) ? relative(x,y) : {x:paper.clientWidth/2,y:paper.clientHeight/2};
-    zoom(cam.z*Math.exp(scale),at);
-  } else if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheelPan);
+  const at = scale && !preferences.zoomLocked ? (Number.isFinite(x) && Number.isFinite(y) ? relative(x,y) : center()) : null;
+  queueWheelMotion(dx,dy,scale,at);
 });
 paper.addEventListener('wheel',e => {
   e.preventDefault();
@@ -934,11 +1021,10 @@ paper.addEventListener('wheel',e => {
   clearHover();
   const dx = e.deltaX*(mode === 1 ? 18 : mode === 2 ? paper.clientWidth : 1);
   const dy = e.deltaY*(mode === 1 ? 18 : mode === 2 ? paper.clientHeight : 1);
-  if (e.ctrlKey || e.metaKey) { zoom(cam.z*Math.exp(-dy*.006),relative(e.clientX,e.clientY)); return; }
+  if (e.ctrlKey || e.metaKey) { if (!preferences.zoomLocked) queueWheelMotion(0,0,-dy*.006,relative(e.clientX,e.clientY)); return; }
   if (e.isTrusted) collectTouchpadSample(dx,dy,'wheel');
   // Consume X and Y as supplied; never filter, swap or favor either axis in the app.
-  wheelDelta.x += dx; wheelDelta.y += dy;
-  if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheelPan);
+  queueWheelMotion(-dx,-dy);
 },{passive:false});
 function moveCohort(n) {
   return (n.parallelId ? model.nodes.filter(m => m.parallelId === n.parallelId) : [n])
@@ -998,21 +1084,20 @@ paper.addEventListener('pointerdown',e => {
     }
     if (points.size > 1 || pinch) return;
   }
-  if (![0,1,2].includes(e.button)) return;
-  const inEditor = e.target.closest('.editor'), right = e.button === 2;
-  if (right && inEditor) return; // Keep the native text menu inside editable text.
-  if (right) lastRightRelease = -Infinity;
+  // Windows can emit contextmenu before pointerup. Let the dedicated context
+  // event choose the object, without capturing or suppressing the right click.
+  if (![0,1].includes(e.button)) return;
+  const inEditor = e.target.closest('.editor');
   if (inEditor && e.button === 0 && !space) return;
   const lid = e.target.closest('[data-edge]')?.dataset.edge;
   const id = noteHit(e.clientX,e.clientY,e.target,!lid), canMove = !!id && movable === id;
   clearHover();
   const beforeInteraction = capture();
-  const pan = !right && (e.button === 1 || space);
-  if (!pan && !right && id) finishEdit();
+  const pan = e.button === 1 || space;
+  if (!pan && id) finishEdit();
   e.preventDefault(); applyWheelPan();
   const base = {id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,cx:cam.x,cy:cam.y};
-  if (right) gesture = {...base,type:'contextTap',right,target:e.target};
-  else if (pan) gesture = {...base,type:'pan'};
+  if (pan) gesture = {...base,type:'pan'};
   else if (source) gesture = {...base,type:'connectTap',nodeId:id};
   else if (id && node(id)) {
     const n = node(id);
@@ -1026,7 +1111,7 @@ paper.addEventListener('pointermove',e => {
   lastPointer = {x:e.clientX,y:e.clientY};
   if (points.has(e.pointerId)) points.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if (pinch && points.size >= 2) {
-    const f = fingers(), z = Math.max(.2,Math.min(3,pinch.cam.z*f.dist/pinch.dist));
+    const f = fingers(), z = preferences.zoomLocked ? pinch.cam.z : Math.max(.2,Math.min(3,pinch.cam.z*f.dist/pinch.dist));
     cam = {z,x:f.p.x-(pinch.p.x-pinch.cam.x)*z/pinch.cam.z,y:f.p.y-(pinch.p.y-pinch.cam.y)*z/pinch.cam.z}; camera(); return;
   }
   if (gesture?.id !== e.pointerId) { if (!gesture && !pinch) noteHover(e); return; }
@@ -1067,11 +1152,9 @@ paper.addEventListener('pointerup',e => {
   if (gesture?.id !== e.pointerId) return;
   const g = gesture; gesture = null; clearGestureCursor();
   if (paper.hasPointerCapture?.(e.pointerId)) paper.releasePointerCapture(e.pointerId);
-  if (g.right) lastRightRelease = performance.now();
   if (g.type === 'pan' && g.moved) {
     cam.x = g.cx + e.clientX-g.x; cam.y = g.cy + e.clientY-g.y; camera(); return;
   }
-  if (g.right) { if (!g.moved) showPaperContext(g.target,{x:e.clientX,y:e.clientY}); return; }
   const p = world(e.clientX,e.clientY);
   if (g.type === 'blank' && !g.moved) { finishEdit(); closePanel(); newNote(p.x,p.y); }
   if (g.type === 'move') {
@@ -1098,21 +1181,21 @@ function cancelGesture(e) {
   if (gesture?.id !== e.pointerId) return;
   cancelMoveIfActive();
   if (gesture.type === 'pan' && gesture.moved) camera();
-  if (gesture.right) lastRightRelease = performance.now();
   gesture = null; preview = null; scheduleDraw(); clearGestureCursor();
 }
 paper.addEventListener('pointercancel',cancelGesture);
 paper.addEventListener('pointerleave',clearHover);
 function showPaperContext(target,anchor) {
-  const id = target.closest('[data-node]')?.dataset.node, lid = target.closest('[data-edge]')?.dataset.edge;
-  if (id) { selectNode(id); openProps(anchor,dom.get(id)); }
-  else if (lid) { selectEdge(lid); openProps(anchor,paper); }
+  const hit = target.closest('[data-node],[data-edge]');
+  const lid = hit?.dataset.edge;
+  const id = hit?.dataset.node || (!lid && noteHit(anchor.x,anchor.y,target));
+  if (id && node(id)) { selectNode(id); openProps(anchor,dom.get(id)); }
+  else if (lid && edge(lid)) { selectEdge(lid); openProps(anchor,paper); }
   else openFile(anchor,paper);
 }
 paper.addEventListener('contextmenu',e => {
-  if (gesture?.right || (e.button === 2 && performance.now()-lastRightRelease < 500)) { e.preventDefault(); return; }
-  if (e.target.closest('.editor')) return;
-  e.preventDefault(); showPaperContext(e.target,e.clientX || e.clientY ? {x:e.clientX,y:e.clientY} : keyboardAnchor());
+  e.preventDefault();
+  showPaperContext(e.target,e.clientX || e.clientY ? {x:e.clientX,y:e.clientY} : keyboardAnchor());
 });
 document.addEventListener('pointerdown',e => {
   if (!panel.hidden && !e.target.closest('#panel,#file,#inspect-more,#save-error')) closePanel();

@@ -2,6 +2,8 @@
 #define _WIN32_WINNT 0x0A00
 #include <windows.h>
 #include <commctrl.h>
+#define COBJMACROS
+#include <msctf.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -170,13 +172,67 @@ static Value poll(Env e,Info i) {
     }
     used=0;return out;
 }
+// Prefer Chinese conversion only on our own foreground UI thread. Never
+// switch the installed profile, use a global TSF compartment, or inject keys.
+static BOOL setConversion(ITfCompartmentMgr *mgr,const GUID *guid,TfClientId id,LONG bits) {
+    ITfCompartment *slot=NULL;
+    if(FAILED(ITfCompartmentMgr_GetCompartment(mgr,guid,&slot)) || !slot)return FALSE;
+    VARIANT current={0};
+    HRESULT hr=ITfCompartment_GetValue(slot,&current);
+    BOOL ok=FALSE;
+    // Missing/unknown state may be a provider that does not support this.
+    if(hr==S_OK && V_VT(&current)==VT_I4) {
+        if((V_I4(&current)&bits)==bits) ok=TRUE;
+        else {
+            V_I4(&current)|=bits;
+            ok=SUCCEEDED(ITfCompartment_SetValue(slot,id,&current));
+        }
+    }
+    VariantClear(&current);
+    ITfCompartment_Release(slot);
+    return ok;
+}
+static Value preferChinese(Env e,Info i) {
+    static const GUID iid={0x7dcf57ac,0x18ad,0x438b,{0x82,0x4d,0x97,0x9b,0xff,0xb7,0x4b,0x7c}};
+    static const GUID open={0x58273aad,0x01bb,0x4164,{0x95,0xc6,0x75,0x5b,0xa0,0xb5,0x16,0x2d}};
+    static const GUID conversion={0xccf05dd8,0x4a87,0x11d7,{0xa6,0xe2,0x00,0x06,0x5b,0x84,0x43,0x5c}};
+    typedef HRESULT (WINAPI *GetManagerFn)(ITfThreadMgr**);
+    Value arg,out=NULL;
+    size_t n=1,len=0;
+    void *buf=NULL;
+    BOOL ok=FALSE;
+    if(!napi_get_cb_info(e,i,&n,&arg,NULL,NULL) && n==1 &&
+       !napi_get_buffer_info(e,arg,&buf,&len) && len==sizeof(HWND)){
+        HWND h;memcpy(&h,buf,sizeof h);
+        if(h && h==GetForegroundWindow() && GetWindowThreadProcessId(h,NULL)==GetCurrentThreadId() &&
+           PRIMARYLANGID(LOWORD((UINT_PTR)GetKeyboardLayout(0)))==LANG_CHINESE){
+            HMODULE tsf=GetModuleHandleW(L"msctf.dll");
+            GetManagerFn get=tsf?(GetManagerFn)GetProcAddress(tsf,"TF_GetThreadMgr"):NULL;
+            ITfThreadMgr *manager=NULL;
+            if(get && SUCCEEDED(get(&manager)) && manager){
+                ITfCompartmentMgr *local=NULL;
+                TfClientId id=0;
+                if(SUCCEEDED(ITfThreadMgr_Activate(manager,&id))){
+                    if(SUCCEEDED(ITfThreadMgr_QueryInterface(manager,&iid,(void**)&local)) && local){
+                        ok=setConversion(local,&open,id,1) && setConversion(local,&conversion,id,1);
+                        ITfCompartmentMgr_Release(local);
+                    }
+                    ITfThreadMgr_Deactivate(manager);
+                }
+                ITfThreadMgr_Release(manager);
+            }
+        }
+    }
+    napi_get_boolean(e,ok!=FALSE,&out); return out;
+}
+
 __declspec(dllexport) Value napi_register_module_v1(Env e,Value exports) {
     HMODULE self=GetModuleHandleW(NULL);
 #define LOAD(n,p) n=(Status (*)p)GetProcAddress(self,#n);if(!n)return exports;
     NAPIS(LOAD)
-    const char *names[]={"start","stop","poll"};
-    Callback callbacks[]={start,stop,poll};
-    for(unsigned j=0;j<3;j++){
+    const char *names[]={"start","stop","poll","preferChinese"};
+    Callback callbacks[]={start,stop,poll,preferChinese};
+    for(unsigned j=0;j<sizeof(callbacks)/sizeof(callbacks[0]);j++){
         Value v;
         if(!napi_create_function(e,names[j],strlen(names[j]),callbacks[j],NULL,&v))
             napi_set_named_property(e,exports,names[j],v);

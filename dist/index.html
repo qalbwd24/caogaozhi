@@ -6,6 +6,7 @@
   <meta name="description" content="一张随手写、随手连的数字草稿纸。">
   <title>草稿纸</title>
   <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./cursors.css">
 </head>
 <body>
 <div id="surface">
@@ -44,7 +45,7 @@
   <h2>随手写，随手连</h2>
   <dl>
     <dt>书写</dt><dd>单击空白落笔，空块离开即释放；点击文字继续编辑；未进入编辑时快速拖动拉线，悬停后再拖动挪块。</dd>
-    <dt>生长</dt><dd>Tab 创建子块，可连续深入；Enter 新建同级，Shift+Enter 在块内换行。Ctrl+Enter 记一个独立想法。</dd>
+    <dt>生长</dt><dd>Tab 创建子块，可连续深入；Enter 收笔，再按 Enter 新建同组并列块；Shift+Enter 在块内换行。Ctrl+Enter 记一个独立想法。</dd>
     <dt>用色</dt><dd>F18 循环黑、红、蓝、铅。选中文字时改选区，否则改下一笔。选中连线后，F17 循环无箭头、正向、反向、双向</dd>
     <dt>移动</dt><dd>触控板双指滑动、捏合缩放；按住鼠标滚轮拖动可自由斜移，也可按住空格拖动。空白轻点写字，裸拖空白留空。滚轮上下，Ctrl+滚轮缩放。</dd>
     <dt>撤回</dt><dd>Ctrl+Z 撤销；Ctrl+Y / Ctrl+Shift+Z 重做。Ctrl+S 立即保存，平时自动保存。</dd>
@@ -58,6 +59,7 @@
 <script src="./workspace.js"></script>
 <script src="./editor.js"></script>
 <script src="./routing.js"></script>
+<script src="./parallel-placement.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

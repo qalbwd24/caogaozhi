@@ -70,12 +70,14 @@ header {
 #file, #inspect-more { font-size: 20px; line-height: 1; }
 #save-error { min-height: 24px; width: 24px; padding: 0; color: #ad3033; font-weight: bold; }
 #paper { position: absolute; inset: var(--head) 0 0; overflow: hidden; touch-action: none; cursor: default; outline: 0; z-index: 1; }
-/* Tile spacing and phase follow the board; the dot's CSS-pixel radius stays fixed. */
-#paper {
-  overscroll-behavior: none;
+#paper { overscroll-behavior: none; }
+/* A 64px bleed covers one full tile at the largest zoom (3 × 20px).
+   Pans only translate this layer; zoom repaints the spacing, not the dot radius. */
+#paper-grid {
+  position: absolute; inset: -64px; pointer-events: none; will-change: transform;
   background-image: radial-gradient(circle, rgba(123, 77, 44, .24) 0 1px, transparent 1.35px);
   background-size: var(--paper-grid-step, 20px) var(--paper-grid-step, 20px);
-  background-position: var(--paper-grid-x, 0px) var(--paper-grid-y, 0px);
+  background-position: 64px 64px;
 }
 #paper.pan, #paper.pan .note { cursor: grab; }
 #paper[data-gesture="move"], #paper[data-gesture="move"] * { cursor: grabbing !important; }
@@ -187,7 +189,7 @@ dialog form { text-align: right; margin-top: 18px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 @media print {
   html, body, #surface { height: auto; position: static; overflow: visible; background: white; }
-  header, #panel, #ink-hint, #touchpad-feedback, dialog, #surface::after, .sr-only { display: none !important; }
+  header, #panel, #ink-hint, #touchpad-feedback, dialog, #surface::after, #paper-grid, .sr-only { display: none !important; }
   #paper { position: relative; background: white; overflow: visible; inset: auto; width: var(--print-w,100%); height: var(--print-h,auto); }
   #board { transform: var(--print-t,none) !important; }
   .note::before { display: none; }

@@ -8,7 +8,7 @@ const {writeFile}=require('node:fs/promises');
 app.setName('草稿纸');
 app.setPath('userData',path.join(app.getPath('appData'),'Caogaozhi'));
 if(process.platform==='win32') app.setAppUserModelId('com.caogaozhi.scratchpad');
-let mainWindow, saving=false;
+let mainWindow, saving=false, keyProbe=null;
 const paper=path.join(__dirname,'dist','index.html');
 const paperURL=pathToFileURL(paper).href;
 
@@ -33,6 +33,23 @@ async function saveScreenshot(win){
   } finally { saving=false; }
 }
 
+function shortcutName(key,code) {
+  const value=[String(key || '').toUpperCase(),String(code || '').toUpperCase()];
+  return value.find(k => k==='F17'||k==='F18'||k==='F19');
+}
+function noteShortcut(name,input,dispatched=false) {
+  if (!name || !keyProbe) return;
+  const row=keyProbe[name];
+  if(dispatched) {row.used++; return;}
+  if(input.type==='keyUp') row.up++;
+  if(input.type==='keyDown') {
+    row.down++;
+    if(input.isAutoRepeat)row.repeat++;
+    if(input.isComposing)row.composing++;
+    if(input.alt||input.control||input.meta)row.modifier++;
+  }
+}
+
 function openPaper(){
   if(mainWindow) return;
   mainWindow=new BrowserWindow({
@@ -46,6 +63,8 @@ function openPaper(){
     if(!url||url.split('?')[0]!==paperURL)event.preventDefault();
   });
   mainWindow.webContents.on('before-input-event',(event,input)=>{
+    const fn=shortcutName(input.key,input.code);
+    noteShortcut(fn,input);
     if(input.type!=='keyDown'||input.alt)return;
     const key=String(input.key||'').toLowerCase();
     const code=String(input.code||'').toLowerCase();
@@ -59,12 +78,12 @@ function openPaper(){
     const direction=key==='f17'||code==='f17'?-1:key==='f18'||code==='f18'?1:0;
     if(direction){
       event.preventDefault();
-      if(!input.isAutoRepeat)mainWindow.webContents.send('paper:color-step',direction);
+      if(!input.isAutoRepeat){noteShortcut(fn,input,true);mainWindow.webContents.send('paper:color-step',direction);}
       return;
     }
     if(!input.isComposing&&!input.control&&!input.meta&&(key==='f19'||code==='f19')){
       event.preventDefault();
-      if(!input.isAutoRepeat)mainWindow.webContents.send('paper:tools');
+      if(!input.isAutoRepeat){noteShortcut(fn,input,true);mainWindow.webContents.send('paper:tools');}
     }
   });
   attachWindowsTouchpad(mainWindow,screen);
@@ -81,6 +100,30 @@ else{
   app.on('second-instance',()=>{if(mainWindow){if(mainWindow.isMinimized())mainWindow.restore();mainWindow.focus();}});
   app.whenReady().then(()=>{
     Menu.setApplicationMenu(null);
+    ipcMain.handle('paper:probe-shortcuts',async event=>{
+      const w=mainWindow;
+      if(keyProbe || !w || event.sender!==w.webContents ||
+         event.senderFrame!==w.webContents.mainFrame || event.senderFrame?.url.split('?')[0]!==paperURL) return null;
+      const probe={F17:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0},
+        F18:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0},
+        F19:{down:0,up:0,repeat:0,composing:0,modifier:0,used:0}};
+      keyProbe=probe;
+      await new Promise(resolve=>setTimeout(resolve,8000));
+      if(keyProbe===probe)keyProbe=null;
+      return probe;
+    });
+
+    let initialEditorFocusSeen=false;
+    ipcMain.on('paper:initial-edit',event=>{
+      const win=mainWindow;
+      if(initialEditorFocusSeen || !win || !win.isFocused() || event.sender!==win.webContents ||
+         event.senderFrame!==win.webContents.mainFrame || event.senderFrame?.url.split('?')[0]!==paperURL)return;
+      initialEditorFocusSeen=true;
+      if(process.platform!=='win32'||process.arch!=='x64')return;
+      try { require('./touchpad-win32-x64.node').preferChinese?.(win.getNativeWindowHandle()); }
+      catch { /* The app still works with the user's existing input mode. */ }
+    });
+
     ipcMain.handle('paper:save-screenshot',(event)=>{
       if(!mainWindow||event.sender!==mainWindow.webContents||
          event.senderFrame?.url.split('?')[0]!==paperURL)return false;
