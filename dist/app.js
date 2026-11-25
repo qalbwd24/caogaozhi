@@ -878,6 +878,17 @@ function finishTouchpadProbe() {
 $('touchpad-feedback').querySelector('button').onclick = () => {
   clearTimeout(touchpadProbeTimer); touchpadProbe = null; $('touchpad-feedback').hidden = true;
 };
+window.paperDesktop?.onTouchpad?.((dx,dy,scale,x,y) => {
+  if (loading || gesture || !$('panel').hidden) return;
+  clearHover();
+  collectTouchpadSample(dx,dy);
+  wheelDelta.x -= dx; wheelDelta.y -= dy;
+  if (scale) {
+    applyWheelPan();
+    const at = Number.isFinite(x) && Number.isFinite(y) ? relative(x,y) : {x:paper.clientWidth/2,y:paper.clientHeight/2};
+    zoom(cam.z*Math.exp(scale),at);
+  } else if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheelPan);
+});
 paper.addEventListener('wheel',e => {
   e.preventDefault();
   const mode = e.deltaMode;

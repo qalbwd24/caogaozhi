@@ -3,6 +3,12 @@ const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('paperDesktop',Object.freeze({
   saveScreenshot:()=>ipcRenderer.invoke('paper:save-screenshot'),
   saveTouchpadProbe:(summary)=>ipcRenderer.invoke('paper:save-touchpad-probe',summary),
+  onTouchpad:(callback)=>{
+    if(typeof callback!=='function')return;
+    ipcRenderer.on('paper:touchpad',(_event,dx,dy,zoom,x,y)=>{
+      if([dx,dy,zoom].every(Number.isFinite))callback(dx,dy,zoom,x,y);
+    });
+  },
   onTools:(callback)=>{
     if(typeof callback!=='function')return ()=>{};
     const listener=()=>callback();

@@ -1,6 +1,7 @@
 'use strict';
-const {app, BrowserWindow, Menu, session, dialog, ipcMain}=require('electron');
+const {app, BrowserWindow, Menu, session, dialog, ipcMain, screen}=require('electron');
 const path=require('node:path');
+const {attachWindowsTouchpad}=require('./windows-touchpad.cjs');
 const {pathToFileURL}=require('node:url');
 const {writeFile}=require('node:fs/promises');
 
@@ -66,6 +67,7 @@ function openPaper(){
       if(!input.isAutoRepeat)mainWindow.webContents.send('paper:tools');
     }
   });
+  attachWindowsTouchpad(mainWindow,screen);
   mainWindow.once('ready-to-show',()=>mainWindow?.show());
   mainWindow.on('closed',()=>{mainWindow=null;});
   mainWindow.loadFile(paper,{query:{desktop:'1'}}).catch((error)=>{

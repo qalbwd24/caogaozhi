@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import pathlib
 import shutil
+import subprocess
 import tempfile
 import urllib.request
 import zipfile
@@ -45,6 +46,7 @@ def sha(path: pathlib.Path) -> str:
 def build() -> None:
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--cache',type=pathlib.Path,help='Directory containing the official runtime archive and SHASUMS256.txt.')
+    ap.add_argument('--zig',type=pathlib.Path,help='Path to the Zig executable. Builds the optional native Windows x64 touchpad module.')
     ap.add_argument('--output',required=True,type=pathlib.Path)
     args=ap.parse_args()
     out=args.output.resolve()
@@ -65,6 +67,11 @@ def build() -> None:
         actual=sha(runtime)
         if expected is None or expected!=actual:
             ap.error('Electron archive checksum mismatch. No app package was written.')
+        module=stage/'touchpad-win32-x64.node'
+        if args.zig:
+            subprocess.run([str(args.zig.resolve()),'cc','-target','x86_64-windows-gnu','-O2','-shared',
+                            '-Werror','-Wall',str(ROOT/'desktop/native/touchpad.c'),'-lcomctl32','-luser32',
+                            '-o',str(module)],check=True)
         with zipfile.ZipFile(runtime) as rt,zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=3) as result:
             prefix='草稿纸/'
             for info in rt.infolist():
@@ -74,8 +81,10 @@ def build() -> None:
                 with rt.open(info) as source,result.open(prefix+dst,'w') as target:
                     shutil.copyfileobj(source,target,1024**2)
             app=prefix+'resources/app/'
-            for name in ['main.cjs','preload.cjs','package.json','icon.png']:
+            for name in ['main.cjs','preload.cjs','package.json','icon.png','windows-touchpad.cjs','touchpad-motion.cjs']:
                 result.write(ROOT/'desktop'/name,app+name)
+            if module.is_file():
+                result.write(module,app+module.name)
             for source,destination in renderer_files:
                 result.write(source,app+destination)
             result.writestr(prefix+'使用前先读.txt','草稿纸 Windows x64 预览版\r\n请完整解压，双击“草稿纸.exe”。不要只移动 EXE。\r\n草稿保存到本机。首次运行未签名版本，Windows 可能提示。\r\n'.encode('utf-8-sig'))
