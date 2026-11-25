@@ -121,8 +121,8 @@ function edgeGeometry(A,B,others=[],previous=[],options={}) {
   for(let index=0;index<families.length;index++) {
     const [as,bs]=routeSides(A,B,families[index]);
     const aOffset=options.offsets?.[as]?.a||0,bOffset=options.offsets?.[bs]?.b||0;
-    const from=routePort(A,as,aOffset,options.arrow==='double'?10:7);
-    const to=routePort(B,bs,bOffset,options.arrow&&options.arrow!=='none'?10:7);
+    const from=routePort(A,as,aOffset,['reverse','double'].includes(options.arrow)?10:7);
+    const to=routePort(B,bs,bOffset,['single','double'].includes(options.arrow)?10:7);
     const distance=Math.hypot(to.p.x-from.p.x,to.p.y-from.p.y);
     const clearance=(to.p.x-from.p.x)*from.normal.x+(to.p.y-from.p.y)*from.normal.y;
     // Short clearances need short handles; otherwise a near-vertical link curls
@@ -199,8 +199,8 @@ function draw() {
     const hit=svgEl('path',{d:curve.path,class:'hit','data-edge':e.id,tabindex:0,role:'button','aria-label':'选择连线'+(e.label?'：'+e.label:'')});
     const wire=svgEl('path',{d:curve.path,class:'wire'+(e.id===edgeId?' chosen':''),stroke:inks[color][0],'stroke-linecap':'round','stroke-linejoin':'round'});
     if(e.style==='dash')wire.setAttribute('stroke-dasharray','6 5');
-    if(e.arrow!=='none')wire.setAttribute('marker-end','url(#arrow-'+color+')');
-    if(e.arrow==='double')wire.setAttribute('marker-start','url(#arrow-'+color+')');
+    if(e.arrow==='single'||e.arrow==='double')wire.setAttribute('marker-end','url(#arrow-'+color+')');
+    if(e.arrow==='reverse'||e.arrow==='double')wire.setAttribute('marker-start','url(#arrow-'+color+')');
     fragment.append(hit,wire);
     if(e.label) {
       const label=svgEl('text',{x:curve.label.x,y:curve.label.y-8,'text-anchor':'middle',fill:inks[color][0],stroke:'#fce3bf','stroke-width':4,'paint-order':'stroke','font-size':12,'stroke-linejoin':'round'});

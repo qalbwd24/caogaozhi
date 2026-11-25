@@ -19,7 +19,7 @@
       <div id="palette" class="row"></div>
       <div id="edge-controls" class="row" hidden>
         <select id="stroke-style" aria-label="连线线型"><option value="solid">实线</option><option value="dash">虚线</option></select>
-        <select id="stroke-arrow" aria-label="连线方向"><option value="none">无箭头</option><option value="single">单箭头</option><option value="double">双箭头</option></select>
+        <select id="stroke-arrow" aria-label="连线方向"><option value="none">无箭头</option><option value="single">正向</option><option value="reverse">反向</option><option value="double">双向</option></select>
       </div>
       <button id="inspect-more" class="icon-button" aria-label="对象属性（Shift+F10）" title="对象属性 · Shift+F10" hidden>⋯</button>
     </div>
@@ -45,7 +45,7 @@
   <dl>
     <dt>书写</dt><dd>单击空白落笔，空块离开即释放；点击文字继续编辑；未进入编辑时快速拖动拉线，悬停后再拖动挪块。</dd>
     <dt>生长</dt><dd>Tab 创建子块，可连续深入；Enter 新建同级，Shift+Enter 在块内换行。Ctrl+Enter 记一个独立想法。</dd>
-    <dt>用色</dt><dd>F17 向左、F18 向右循环黑、红、蓝、灰。选中文字改选区，未选中时改下一笔；选中连线时改线色。</dd>
+    <dt>用色</dt><dd>F18 循环黑、红、蓝、铅，Alt + 1 / 2 / 3 / 4 可直接选色。选中文字时改选区，否则改下一笔。选中连线后，F17 循环无箭头、正向、反向、双向</dd>
     <dt>移动</dt><dd>触控板双指滑动、捏合缩放；按住鼠标滚轮拖动可自由斜移，也可按住空格拖动。空白轻点写字，裸拖空白留空。滚轮上下，Ctrl+滚轮缩放。</dd>
     <dt>撤回</dt><dd>Ctrl+Z 撤销；Ctrl+Y / Ctrl+Shift+Z 重做。Ctrl+S 立即保存，平时自动保存。</dd>
     <dt>草稿</dt><dd>Ctrl+Alt+N 新建标签；Ctrl+PageUp / PageDown 切换；F2 改名；Ctrl+Alt+T 恢复最近关闭。关闭标签保留草稿。</dd>

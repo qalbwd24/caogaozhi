@@ -114,7 +114,7 @@ test('returning to an existing block can immediately grow another child', async 
   assert.equal(focusedEditor, true);
 });
 
-test('F18/F17 cycle only the selected text and retain the selection and editor focus', async t => {
+test('F18 cycles only the selected text and retain the selection and editor focus', async t => {
   const page = await pageFor(t);
   await writeFirst(page, '正文提醒');
   await selectText(page, 2, 4);
@@ -124,9 +124,9 @@ test('F18/F17 cycle only the selected text and retain the selection and editor f
   let selection = await page.evaluate(() => editing.controller.getSelection());
   assert.deepEqual([selection.start, selection.end], [2, 4]);
   assert.equal(state.focusedEditor, true);
-  await functionKey(page, 'F17');
+  await functionKey(page, 'F18');
   state = await app(page);
-  assert.ok(state.model.nodes[0].runs.every(run => run.color === 'black'));
+  assert.deepEqual(state.model.nodes[0].runs, [{ text: '正文', color: 'black' }, { text: '提醒', color: 'blue' }]);
   assert.equal(state.model.nodes[0].text, '正文提醒');
   selection = await page.evaluate(() => editing.controller.getSelection());
   assert.deepEqual([selection.start, selection.end], [2, 4]);
@@ -140,6 +140,8 @@ test('switching the next pen color preserves existing text; F19/F20 are not cons
   let state = await app(page);
   assert.deepEqual(state.model.nodes[0].runs, [{ text: '正文', color: 'black' }, { text: '提醒', color: 'red' }]);
   await functionKey(page, 'F19');
+  assert.equal(await page.locator('#panel .menu-item').first().textContent(), '笔颜色→');
+  await page.keyboard.press('Escape');
   await functionKey(page, 'F20');
   assert.equal((await app(page)).ink, state.ink);
   await functionKey(page, 'F18');

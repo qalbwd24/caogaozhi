@@ -3,20 +3,21 @@ const $ = id => document.getElementById(id);
 const paper = $('paper'), board = $('board'), noteLayer = $('notes'), svg = $('links'), panel = $('panel');
 const inks = {black:['#322b25','黑 · 正文'],red:['#ad3536','红 · 重点、易错'],blue:['#285f94','蓝 · 启发、观点'],gray:['#796e61','铅 · 想法、待定']};
 const colors = Object.keys(inks);
+const arrows = {none:'无箭头',single:'正向',reverse:'反向',double:'双向'};
 const newId = () => globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2);
 const blank = () => ({nodes:[], edges:[]});
 const clone = value => JSON.parse(JSON.stringify(value));
 let model = blank(), selected = null, edgeId = null, ink = 'black', source = null, editing = null;
 let cam = {x:0,y:0,z:1}, gesture = null, pinch = null, preview = null, space = false, panelType = '';
 let workspace, loading = true, drawFrame = 0, wheelFrame = 0, saveError = '', renaming = false;
-let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null;
+let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null, toolEditorSelection = null;
 let hover = null, hoverTimer = 0, movable = null, inkHintTimer = 0;
 const panKeys = new Set();
 let keyPanFrame = 0, keyPanAt = null;
-const settingDefaults = {hoverDelay:440,inkHint:true};
+const settingDefaults = {hoverDelay:440,inkHint:true,lineStyle:'solid'};
 let touchpadProbe = null, touchpadProbeTimer = 0;
 let preferences = {...settingDefaults};
-try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; } catch { /* nonessential UI preferences */ }
+try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; if (saved.lineStyle === 'dash') preferences.lineStyle = 'dash'; } catch { /* nonessential UI preferences */ }
 function savePreferences() { try { localStorage.setItem('caogaozhi.preferences.v1',JSON.stringify(preferences)); } catch { /* retains the choice for this session */ } }
 let wheelDelta = {x:0,y:0}, lastPointer = null, lastRightRelease = -Infinity, viewSaveTimer = 0;
 const dom = new Map(), histories = new Map(), focusMemory = new Map();
@@ -43,7 +44,7 @@ function normalize(raw) {
   const edges = raw.edges.map(e => {
     if (!e || typeof e.id !== 'string' || !e.id || edgeIds.has(e.id) || !ids.has(e.a) || !ids.has(e.b) || e.a === e.b) throw Error('连线数据不正确');
     edgeIds.add(e.id);
-    return {id:e.id,a:e.a,b:e.b,style:e.style === 'dash' ? 'dash' : 'solid',arrow:['none','single','double'].includes(e.arrow) ? e.arrow : 'none',color:colors.includes(e.color) ? e.color : 'gray',label:typeof e.label === 'string' ? e.label.slice(0,80) : '',...(e.kind === 'child' ? {kind:'child'} : {})};
+    return {id:e.id,a:e.a,b:e.b,style:e.style === 'dash' ? 'dash' : 'solid',arrow:Object.hasOwn(arrows,e.arrow) ? e.arrow : 'none',color:colors.includes(e.color) ? e.color : 'gray',label:typeof e.label === 'string' ? e.label.slice(0,80) : '',...(e.kind === 'child' ? {kind:'child'} : {})};
   });
   return {nodes,edges};
 }
@@ -214,7 +215,7 @@ function render() {
     const content = d.querySelector('.content'); content.hidden = ed; if (!ed) drawText(content,n);
     d.setAttribute('aria-label',n.text || '空白文字块');
   }
-  scheduleDraw(); sync();
+  scheduleDraw(); sync(); placeInkHint();
 }
 function sync() {
   if (!workspace) return;
@@ -245,7 +246,7 @@ function openEditor(n,selection,point) {
       changed(before,group); scheduleDraw(); reveal(n);
     },
     onSelectionChange() {
-      if (editing?.controller) sync();
+      if (editing?.controller) { sync(); placeInkHint(); }
     }
   });
   editing.controller = controller;
@@ -256,7 +257,7 @@ function openEditor(n,selection,point) {
     if (range && host.contains(range.startContainer)) { const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); }
   }
   host.addEventListener('blur',() => {
-    queueMicrotask(() => { if (editing?.host === host && !host.contains(document.activeElement)) finishEdit(); });
+    queueMicrotask(() => { if (editing?.host === host && !host.contains(document.activeElement) && !(toolPage && panelReturn === host && panel.contains(document.activeElement))) finishEdit(); });
   });
   reveal(n); sync();
 }
@@ -276,7 +277,7 @@ function finishEdit() {
 }
 function createEdge(a,b,arrow='none',kind) {
   if (a === b || model.edges.some(e => e.a === a && e.b === b)) return null;
-  const e = {id:newId(),a,b,style:'solid',arrow,color:ink,label:'',...(kind ? {kind} : {})}; model.edges.push(e); return e;
+  const e = {id:newId(),a,b,style:kind === 'child' ? 'solid' : preferences.lineStyle,arrow,color:ink,label:'',...(kind ? {kind} : {})}; model.edges.push(e); return e;
 }
 function newNote(x,y,{parent=null,child=false,arrow='none',order=null,parallelId=null,place=false,before:nullBefore=null}={}) {
   finishEdit(); const before = nullBefore || capture();
@@ -326,11 +327,17 @@ function placeInkHint() {
       const b = range.getBoundingClientRect(); if (b.height > 0) a = b;
     }
     a ||= editing.host.getBoundingClientRect();
+  } else if (edgeId) {
+    const hit = [...svg.querySelectorAll('[data-edge]')].find(p=>p.dataset.edge===edgeId);
+    const matrix = hit?.getScreenCTM();
+    if (matrix) {
+      const p = hit.getPointAtLength(hit.getTotalLength()/2).matrixTransform(matrix);
+      a = {left:p.x,right:p.x,top:p.y,bottom:p.y};
+    }
+  } else if (selected) {
+    a = dom.get(selected)?.getBoundingClientRect();
   }
   if (a && (a.right < v.left || a.left > v.right || a.bottom < v.top || a.top > v.bottom)) a = null;
-  if (!a && lastPointer && lastPointer.x >= v.left && lastPointer.x <= v.right && lastPointer.y >= v.top && lastPointer.y <= v.bottom) {
-    const {x,y} = lastPointer; a = {left:x,right:x,top:y,bottom:y};
-  }
   const width = tip.offsetWidth, height = tip.offsetHeight, gap = 12;
   const x = a ? (a.right+gap+width <= v.right-6 ? a.right+gap : a.left-gap-width) : (v.left+v.right-width)/2;
   const y = a ? (a.top-height-8 >= v.top+6 ? a.top-height-8 : a.bottom+gap) : v.top+Math.min(v.height*.43,210);
@@ -338,14 +345,14 @@ function placeInkHint() {
   tip.style.left = clamp(x,v.left+6,v.right-width-6)-s.left+'px';
   tip.style.top = clamp(y,v.top+6,v.bottom-height-6)-s.top+'px';
 }
-function showInkHint(c,scope) {
-  const label = inks[c][1].split(' · ')[0];
+function showActionHint(c,scope,label) {
   announce(scope + '：' + label);
   if (!preferences.inkHint) return;
   const tip = $('ink-hint'); tip.style.setProperty('--hint-ink',inks[c][0]);
   tip.querySelector('span').textContent = scope + ' · ' + label; tip.hidden = false; placeInkHint();
   clearTimeout(inkHintTimer); inkHintTimer = setTimeout(() => { tip.hidden = true; },1050);
 }
+function showInkHint(c,scope) { showActionHint(c,scope,inks[c][1].split(' · ')[0]); }
 function applyTypingInk(c) {
   breakHistoryGroup(); ink = c;
   editing?.controller?.setTypingColor(c);
@@ -362,20 +369,36 @@ function setInk(c) {
     const range = editing.controller.getSelection();
     if (range.start === range.end) { applyTypingInk(c); return; }
     editing.colorBefore = before;
-    const recolored = editing.controller.setColor(c);
+    editing.controller.setColor(c);
     editing.colorBefore = null;
-    if (recolored) showInkHint(c,'选中文字');
+    ink = c;
+    editing.controller.setTypingColor(c);
+    showInkHint(c,'选中文字');
     persist(); sync(); return;
   }
   ink = c; persist(); sync(); showInkHint(c,'下一笔');
 }
-function cycleInk(direction) {
-  if (document.activeElement?.closest('input,select,dialog')) return;
-  const e = edge(edgeId), current = e?.color || (editing?.controller?.isComposing() ? ink : editing?.controller?.getColor()) || ink;
-  const next = colors[(colors.indexOf(current)+direction+colors.length)%colors.length];
-  if (e) setEdgeAttr('color',next); else setInk(next);
+function chooseInk(c) { if (edge(edgeId)) setEdgeAttr('color',c); else setInk(c); }
+function cycleInk() {
+  const current = (editing?.controller?.isComposing() ? ink : editing?.controller?.getColor()) || ink;
+  setInk(colors[(colors.indexOf(current)+1)%colors.length]);
 }
-function setEdgeAttr(key,value) { const e = edge(edgeId); if (!e || e[key] === value) return; const before = capture(); e[key] = value; changed(before); scheduleDraw(); if (key === 'color') showInkHint(value,'连线'); }
+function stepPaperShortcut(code) {
+  if (document.activeElement?.closest('input,select,dialog')) return;
+  if (code === 'F18') { cycleInk(); return; }
+  if (code !== 'F17') return;
+  const e = edge(edgeId);
+  if (!e) { showActionHint(ink,'箭头','先选中一条连线'); return; }
+  const modes=Object.keys(arrows);
+  setEdgeAttr('arrow',modes[(modes.indexOf(e.arrow)+1)%modes.length]);
+}
+function setEdgeAttr(key,value) {
+  const e = edge(edgeId);
+  if (!e || e[key] === value || (key === 'arrow' && !Object.hasOwn(arrows,value))) return;
+  const before = capture(); e[key] = value; changed(before); scheduleDraw();
+  if (key === 'color') showInkHint(value,'连线');
+  if (key === 'arrow') showActionHint(e.color,'箭头',arrows[value]);
+}
 
 function renderTabs() {
   if (renaming) return;
@@ -442,9 +465,12 @@ function renameTab(id=workspace.state.activeId) {
 }
 
 function closePanel(restoreFocus=false) {
-  const previous = panelReturn;
-  panel.hidden = true; panelType = ''; panelAnchor = panelReturn = toolTarget = null; toolPage = ''; sync();
-  if (restoreFocus) {
+  const previous = panelReturn, held = toolEditorSelection;
+  const resume = !!(held && editing?.host === previous && (restoreFocus || panel.contains(document.activeElement)));
+  panel.hidden = true; panelType = ''; panelAnchor = panelReturn = toolTarget = toolEditorSelection = null; toolPage = ''; sync();
+  if (resume) {
+    editing.controller.focus(); editing.controller.setSelection(held.start,held.end,held.direction);
+  } else if (restoreFocus) {
     const target = previous?.isConnected && !previous.closest('[hidden]') && !previous.disabled
       ? previous : dom.get(selected) || paper;
     target.focus({preventScroll:true});
@@ -515,7 +541,7 @@ function openProps(anchor=null,returnTo=document.activeElement) {
       for (const [value,text] of options) { const option = document.createElement('option'); option.value = value; option.textContent = text; select.append(option); }
       select.value = e[key]; select.onchange = () => setEdgeAttr(key,select.value); label.append(select); panel.append(label);
     };
-    field('线型','style',[['solid','实线'],['dash','虚线']]); field('方向','arrow',[['none','无箭头'],['single','单箭头'],['double','双箭头']]);
+    field('线型','style',[['solid','实线'],['dash','虚线']]); field('方向','arrow',Object.entries(arrows));
     field('颜色','color',colors.map(c => [c,inks[c][1].split(' · ')[0]]));
     pbutton('反转起点与终点',() => { const before = capture(); [e.a,e.b] = [e.b,e.a]; changed(before); scheduleDraw(); });
     pbutton('删除连线',removeSelection,'Delete',false,'trash');
@@ -571,13 +597,14 @@ function openFile(anchor=null,returnTo=document.activeElement) {
   focusMenu();
 }
 const toolGroups = {
-  draft:'草稿与标签', edit:'编辑与对象', transfer:'保存与导出', view:'画布与视野', settings:'设置'
+  ink:'笔颜色', line:'线型', draft:'草稿与标签', edit:'编辑与对象', transfer:'保存与导出', view:'画布与视野', settings:'设置'
 };
 function toggleTools() {
   if (dialogOpen() || editing?.controller.isComposing() || renaming) return;
   if (!panel.hidden && toolPage) { closePanel(true); return; }
   const anchor = keyboardAnchor(), origin = document.activeElement;
-  closePanel(); finishEdit(); toolTarget = origin;
+  closePanel(); toolTarget = editing?.host || origin;
+  toolEditorSelection = editing?.controller.getSelection() || null;
   panelAnchor = anchor;
   showTools('root');
 }
@@ -594,6 +621,23 @@ function showTools(page,focusGroup) {
   if (page === 'root') {
     for (const [id,title] of Object.entries(toolGroups)) branch(id,title);
     pbutton('快捷键与操作',showHelp,'F1');
+  } else if (page === 'ink') {
+    for (const c of colors) {
+      const active = (editing?.controller.getColor() || ink) === c;
+      const button = pbutton(inks[c][1],() => {closePanel(true);setInk(c);},active ? '当前' : '');
+      button.style.color = inks[c][0];
+    }
+  } else if (page === 'line') {
+    const current = edge(edgeId);
+    for (const [style,label] of [['solid','实线'],['dash','虚线']]) {
+      pbutton(label,() => {
+        closePanel(true);
+        if (current) {setEdgeAttr('style',style);showActionHint(current.color,'线型',label);}
+        else {preferences.lineStyle=style;savePreferences();showActionHint(ink,'下一条线',label);}
+      },(current?.style || preferences.lineStyle)===style ? '当前' : '');
+    }
+    divider();
+    for (const [mode,label] of Object.entries(arrows)) pbutton(label,() => {closePanel(true);setEdgeAttr('arrow',mode);},current?.arrow===mode ? '当前' : '',!current);
   } else if (page === 'draft') {
     pbutton('新建草稿',() => addTab(),'Ctrl+Alt+N'); pbutton('重命名',() => renameTab(),'F2');
     pbutton('关闭当前标签',() => closeTab(),'Ctrl+W');
@@ -661,7 +705,15 @@ $('stroke-arrow').onchange = () => setEdgeAttr('arrow',$('stroke-arrow').value);
 for (const [key,[color,label]] of Object.entries(inks)) {
   const button = document.createElement('button'); button.className = 'swatch'; button.dataset.ink = key; button.style.setProperty('--ink-color',color); button.setAttribute('aria-label',label); button.title = label;
   const dot = document.createElement('span'); dot.setAttribute('aria-hidden','true'); button.append(dot);
-  button.addEventListener('pointerdown',e => e.preventDefault()); button.onclick = () => edge(edgeId) ? setEdgeAttr('color',key) : setInk(key); $('palette').append(button);
+  // Apply before the browser/IME can move focus off the insertion point.
+  // Device clicks are handled here; keyboard and assistive activation use click.
+  button.addEventListener('pointerdown',e => {
+    if (e.button !== 0 || !e.isPrimary) return;
+    e.preventDefault(); chooseInk(key);
+  });
+  button.addEventListener('mousedown',e => e.preventDefault());
+  button.addEventListener('click',e => { if (e.detail === 0) chooseInk(key); });
+  $('palette').append(button);
 }
 $('upload').onchange = async () => {
   const file = $('upload').files[0]; $('upload').value = ''; if (!file) return;
@@ -708,8 +760,10 @@ document.addEventListener('keydown',e => {
   const key = e.key || '', k = key.toLowerCase(), cmd = e.ctrlKey || e.metaKey;
   const field = e.target.closest?.('input,select,dialog');
   if ((key === 'F17' || e.code === 'F17' || e.keyCode === 128 || key === 'F18' || e.code === 'F18' || e.keyCode === 129) && !field) {
-    e.preventDefault(); if (!e.repeat) cycleInk(key === 'F17' || e.code === 'F17' || e.keyCode === 128 ? -1 : 1); return;
+    e.preventDefault(); if (!e.repeat) stepPaperShortcut(key === 'F17' || e.code === 'F17' || e.keyCode === 128 ? 'F17' : 'F18'); return;
   }
+  const directInk = e.altKey && !cmd && !e.shiftKey && /^Digit[1-4]$/.test(e.code) ? colors[Number(e.code.at(-1))-1] : null;
+  if (directInk && !field) { e.preventDefault(); if (!e.repeat) setInk(directInk); return; }
   if (e.isComposing || e.keyCode === 229 || editing?.controller?.isComposing(e)) return;
   if (cmd && k === 's' && !e.shiftKey && !e.altKey) { e.preventDefault(); flush(); return; }
   const inPanel = !panel.hidden && panel.contains(e.target);
@@ -808,7 +862,8 @@ document.addEventListener('keyup',e => {
   if (e.key === ' ') { space = false; sync(); }
   if (e.key === 'Alt' || (panKeys.delete(e.key) && !panKeys.size)) stopKeyPan();
 });
-window.paperDesktop?.onColorStep?.(direction => cycleInk(direction));
+// The native bridge transports legacy -1/+1 values for F17/F18.
+window.paperDesktop?.onColorStep?.(direction => stepPaperShortcut(direction === -1 ? 'F17' : 'F18'));
 window.paperDesktop?.onTools?.(toggleTools);
 
 function applyWheelPan() {
