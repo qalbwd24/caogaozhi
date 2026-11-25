@@ -92,10 +92,6 @@ header {
   white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; user-select: none;
 }
 .note .content { min-width: 0; max-width: 300px; }
-.note .content, .editor {
-  /* A fine paper-colored halo keeps occasional crossing curves legible without a card. */
-  text-shadow: -1.5px 0 var(--paper), 1.5px 0 var(--paper), 0 -1.5px var(--paper), 0 1.5px var(--paper);
-}
 .note.selected:not(.editing)::before { content: ''; position: absolute; left: -5px; top: 4px; bottom: 4px; border-left: 2px solid #a4704c77; }
 .note.editing { z-index: 2; cursor: text; }
 .note.move-ready:not(.editing) { cursor: grab; }
@@ -104,7 +100,7 @@ header {
   border-left: 2px dotted var(--accent); opacity: .65; pointer-events: none;
 }
 #ink-hint {
-  position: absolute; z-index: 9; top: calc(var(--head) + 8px); right: 14px;
+  position: absolute; z-index: 9; left: 50%; top: 42%; max-width: calc(100% - 12px); white-space: nowrap;
   display: flex; align-items: center; gap: 7px; padding: 6px 10px;
   color: var(--ink); background: #fff4e2; border: 1px solid var(--line);
   border-radius: 5px; box-shadow: 0 3px 10px #5f41171a; font-size: 12px; pointer-events: none;

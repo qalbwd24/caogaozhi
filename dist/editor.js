@@ -261,14 +261,18 @@
       return true;
     }
 
+    function setTypingColor(color) {
+      typingColor = validColor(color, typingColor);
+      caretColor();
+      prepareNativeInk();
+      onSelectionChange?.({ ...getSelection(), color: getColor() });
+    }
+
     function setColor(color) {
       color = validColor(color, typingColor);
       const prior = getSelection();
       if (prior.start === prior.end) {
-        typingColor = color;
-        caretColor();
-        prepareNativeInk();
-        onSelectionChange?.({ ...prior, color });
+        setTypingColor(color);
         return false;
       }
       const nextRuns = mergeRuns([
@@ -359,7 +363,7 @@
     listen(document, 'selectionchange', notifySelection);
 
     return {
-      element: host, read, getSelection, setSelection, setColor, getColor, setValue, isComposing, insertText,
+      element: host, read, getSelection, setSelection, setColor, setTypingColor, getColor, setValue, isComposing, insertText,
       focus({ end = false } = {}) {
         host.focus({ preventScroll: true });
         if (end) setSelection(state.text.length);

@@ -36,6 +36,7 @@ function normalize(raw) {
     if (n.sticky === true) result.sticky = true;
     if (Number.isInteger(n.order) && n.order > 0 && n.order < 1e7) result.order = n.order;
     if (typeof n.parentId === 'string') result.parentId = n.parentId;
+    if (typeof n.parallelId === 'string' && n.parallelId.length > 0 && n.parallelId.length <= 128) result.parallelId = n.parallelId;
     return result;
   });
   for (const n of nodes) if (!ids.has(n.parentId) || n.parentId === n.id) delete n.parentId;
@@ -217,6 +218,11 @@ function openEditor(n,selection,point) {
     },
     onSelectionChange() {
       if (editing?.controller) sync();
+    },
+    onCompositionEnd() {
+      if (editing?.host !== host || !editing.pendingInk) return;
+      const c = editing.pendingInk;
+      editing.pendingInk = null; applyTypingInk(c);
     }
   });
   editing.controller = controller;
@@ -233,7 +239,8 @@ function openEditor(n,selection,point) {
 }
 function finishEdit() {
   if (!editing) return;
-  const {id,controller} = editing, n = node(id), value = controller.read();
+  const {id,controller,pendingInk} = editing, n = node(id), value = controller.read();
+  if (pendingInk) ink = pendingInk;
   if (n) { n.text = value.text; n.runs = value.runs; }
   detachEditor();
   if (n && !n.text.trim()) {
@@ -249,11 +256,12 @@ function createEdge(a,b,arrow='none',kind) {
   if (a === b || model.edges.some(e => e.a === a && e.b === b)) return null;
   const e = {id:newId(),a,b,style:'solid',arrow,color:ink,label:'',...(kind ? {kind} : {})}; model.edges.push(e); return e;
 }
-function newNote(x,y,{parent=null,child=false,arrow='none',order=null,place=false,before:nullBefore=null}={}) {
+function newNote(x,y,{parent=null,child=false,arrow='none',order=null,parallelId=null,place=false,before:nullBefore=null}={}) {
   finishEdit(); const before = nullBefore || capture();
   if (place) ({x,y} = freeSpot(x,y));
   const n = {id:newId(),x:Math.round(x),y:Math.round(y),text:'',color:ink,...(order ? {order} : {})};
   if (child && node(parent)) n.parentId = parent;
+  if (parallelId) n.parallelId = parallelId;
   model.nodes.push(n); if (parent && node(parent)) createEdge(parent,n.id,arrow,child ? 'child' : undefined);
   selected = n.id; edgeId = null; openEditor(n);
   changed(before,'typing:'+n.id);
@@ -273,7 +281,10 @@ function extend(kind) {
     }
   }
   if (kind === 'child') newNote(n.x+s.w+78,n.y,{parent:n.id,child:true,arrow:'single',place:true,before});
-  else newNote(n.x,n.y+s.h+20,{parent:n.parentId || null,child:!!n.parentId,arrow:n.parentId ? 'single' : 'none',order,place:true,before});
+  else {
+    n.parallelId ||= newId();
+    newNote(n.x,n.y+s.h+20,{parent:n.parentId || null,child:!!n.parentId,arrow:n.parentId ? 'single' : 'none',order,parallelId:n.parallelId,place:true,before});
+  }
 }
 function selectNode(id) {
   if (editing?.id !== id) finishEdit();
@@ -281,32 +292,66 @@ function selectNode(id) {
   closePanel(); render();
 }
 function selectEdge(id) { finishEdit(); selected = null; edgeId = id; closePanel(); render(); }
+function placeInkHint() {
+  const tip = $('ink-hint');
+  if (tip.hidden) return;
+  const v = paper.getBoundingClientRect(), s = $('surface').getBoundingClientRect();
+  let a = null;
+  if (editing) {
+    const selection = window.getSelection();
+    if (selection?.focusNode && editing.host.contains(selection.focusNode)) {
+      const range = document.createRange(); range.setStart(selection.focusNode,selection.focusOffset); range.collapse(true);
+      const b = range.getBoundingClientRect(); if (b.height > 0) a = b;
+    }
+    a ||= editing.host.getBoundingClientRect();
+  }
+  if (a && (a.right < v.left || a.left > v.right || a.bottom < v.top || a.top > v.bottom)) a = null;
+  if (!a && lastPointer && lastPointer.x >= v.left && lastPointer.x <= v.right && lastPointer.y >= v.top && lastPointer.y <= v.bottom) {
+    const {x,y} = lastPointer; a = {left:x,right:x,top:y,bottom:y};
+  }
+  const width = tip.offsetWidth, height = tip.offsetHeight, gap = 12;
+  const x = a ? (a.right+gap+width <= v.right-6 ? a.right+gap : a.left-gap-width) : (v.left+v.right-width)/2;
+  const y = a ? (a.top-height-8 >= v.top+6 ? a.top-height-8 : a.bottom+gap) : v.top+Math.min(v.height*.43,210);
+  const clamp = (n,min,max) => Math.max(min,Math.min(max,n));
+  tip.style.left = clamp(x,v.left+6,v.right-width-6)-s.left+'px';
+  tip.style.top = clamp(y,v.top+6,v.bottom-height-6)-s.top+'px';
+}
 function showInkHint(c,scope) {
   const label = inks[c][1].split(' · ')[0];
   announce(scope + '：' + label);
   if (!preferences.inkHint) return;
   const tip = $('ink-hint'); tip.style.setProperty('--hint-ink',inks[c][0]);
-  tip.querySelector('span').textContent = scope + ' · ' + label; tip.hidden = false;
+  tip.querySelector('span').textContent = scope + ' · ' + label; tip.hidden = false; placeInkHint();
   clearTimeout(inkHintTimer); inkHintTimer = setTimeout(() => { tip.hidden = true; },1050);
+}
+function applyTypingInk(c) {
+  breakHistoryGroup(); ink = c;
+  editing?.controller?.setTypingColor(c);
+  persist(); sync(); showInkHint(c,'下一笔');
 }
 function setInk(c) {
   if (!colors.includes(c)) return;
+  if (editing?.controller?.isComposing()) {
+    editing.pendingInk = c;
+    showInkHint(c,'候选确认后换笔'); return;
+  }
   breakHistoryGroup();
   const before = capture();
   if (editing) {
     const range = editing.controller.getSelection();
-    if (range.start === range.end) ink = c;
+    if (range.start === range.end) { applyTypingInk(c); return; }
     editing.colorBefore = before;
     const recolored = editing.controller.setColor(c);
     editing.colorBefore = null;
-    if (range.start === range.end || recolored) showInkHint(c,range.start === range.end ? '下一笔' : '选中文字');
+    if (recolored) showInkHint(c,'选中文字');
     persist(); sync(); return;
   }
   ink = c; persist(); sync(); showInkHint(c,'下一笔');
 }
 function cycleInk(direction) {
-  if (editing?.controller.isComposing() || document.activeElement?.closest('input,select,dialog')) return;
-  const e = edge(edgeId), current = e?.color || editing?.controller?.getColor() || ink;
+  if (document.activeElement?.closest('input,select,dialog')) return;
+  const composing = editing?.controller?.isComposing();
+  const e = edge(edgeId), current = composing ? editing.pendingInk || ink : e?.color || editing?.controller?.getColor() || ink;
   const next = colors[(colors.indexOf(current)+direction+colors.length)%colors.length];
   if (e) setEdgeAttr('color',next); else setInk(next);
 }
@@ -640,12 +685,12 @@ function connectTarget(id) {
   if (result) { selected = null; edgeId = result.id; changed(before); render(); }
 }
 document.addEventListener('keydown',e => {
-  if (e.isComposing || e.keyCode === 229 || editing?.controller.isComposing(e)) return;
   const key = e.key || '', k = key.toLowerCase(), cmd = e.ctrlKey || e.metaKey;
   const field = e.target.closest?.('input,select,dialog');
   if ((key === 'F17' || e.code === 'F17' || e.keyCode === 128 || key === 'F18' || e.code === 'F18' || e.keyCode === 129) && !field) {
-    e.preventDefault(); cycleInk(key === 'F17' || e.code === 'F17' || e.keyCode === 128 ? -1 : 1); return;
+    e.preventDefault(); if (!e.repeat) cycleInk(key === 'F17' || e.code === 'F17' || e.keyCode === 128 ? -1 : 1); return;
   }
+  if (e.isComposing || e.keyCode === 229 || editing?.controller?.isComposing(e)) return;
   if (cmd && k === 's' && !e.shiftKey && !e.altKey) { e.preventDefault(); flush(); return; }
   const inPanel = !panel.hidden && panel.contains(e.target);
   if (key === 'F19' || e.code === 'F19' || e.keyCode === 130) {
@@ -706,7 +751,7 @@ document.addEventListener('keydown',e => {
   if (e.altKey && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(key)) {
     e.preventDefault(); const dx = key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : 0, dy = key === 'ArrowUp' ? -1 : key === 'ArrowDown' ? 1 : 0;
     const n = node(selected), step = e.shiftKey ? 40 : 10;
-    if (n) { const before = capture(); n.x += dx*step; n.y += dy*step; changed(before,'move:'+n.id); render(); }
+    if (n) { const before = capture(); applyCohort(moveCohort(n),dx*step,dy*step); changed(before,'move:'+(n.parallelId || n.id)); render(); }
     else {
       if (!panKeys.has(key)) {
         panKeys.add(key); cam.x += dx*6; cam.y += dy*6; camera(false);
@@ -802,6 +847,16 @@ paper.addEventListener('wheel',e => {
   wheelDelta.x += dx; wheelDelta.y += dy;
   if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheelPan);
 },{passive:false});
+function moveCohort(n) {
+  return (n.parallelId ? model.nodes.filter(m => m.parallelId === n.parallelId) : [n])
+    .map(item => ({item,x:item.x,y:item.y}));
+}
+function applyCohort(cohort,dx,dy) {
+  for (const pos of cohort) { pos.item.x = pos.x+dx; pos.item.y = pos.y+dy; }
+}
+function cancelMoveIfActive() {
+  if (gesture?.type === 'move' && gesture.moved) { applyCohort(gesture.cohort,0,0); render(); }
+}
 function clearHover() {
   if (hoverTimer) clearTimeout(hoverTimer);
   hoverTimer = 0; hover = null;
@@ -845,7 +900,7 @@ paper.addEventListener('pointerdown',e => {
   if (e.pointerType === 'touch') {
     points.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if (points.size === 2) {
-      if (gesture?.type === 'move' && gesture.moved) { gesture.n.x = gesture.ox; gesture.n.y = gesture.oy; render(); }
+      cancelMoveIfActive();
       gesture = null; preview = null; clearGestureCursor(); clearHover(); scheduleDraw(); pinch = {...fingers(),cam:{...cam}}; e.preventDefault(); return;
     }
     if (points.size > 1 || pinch) return;
@@ -869,7 +924,7 @@ paper.addEventListener('pointerdown',e => {
   else if (source) gesture = {...base,type:'connectTap',nodeId:id};
   else if (id && node(id)) {
     const n = node(id);
-    gesture = canMove ? {...base,type:'move',n,ox:n.x,oy:n.y,before:beforeInteraction} : {...base,type:'note',from:id};
+    gesture = canMove ? {...base,type:'move',n,cohort:moveCohort(n),before:beforeInteraction} : {...base,type:'note',from:id};
   }
   else if (lid) gesture = {...base,type:'edge',lid};
   else gesture = {...base,type:'blank'};
@@ -890,12 +945,14 @@ paper.addEventListener('pointermove',e => {
   if (g.type === 'link' || g.type === 'note') { paper.dataset.gesture = 'link'; preview = {id:g.from,...world(e.clientX,e.clientY)}; scheduleDraw(); }
   if (g.type === 'move') {
     paper.dataset.gesture = 'move';
-    g.n.x = g.ox+dx/cam.z; g.n.y = g.oy+dy/cam.z;
+    applyCohort(g.cohort,dx/cam.z,dy/cam.z);
     if (!g.dragStarted) {
       g.dragStarted = true; selected = g.n.id; edgeId = null; render();
     } else {
-      const element = dom.get(g.n.id);
-      element.style.left = g.n.x+'px'; element.style.top = g.n.y+'px';
+      for (const {item} of g.cohort) {
+        const element = dom.get(item.id);
+        if (element) { element.style.left = item.x+'px'; element.style.top = item.y+'px'; }
+      }
       scheduleDraw();
     }
   }
@@ -942,7 +999,7 @@ paper.addEventListener('pointerup',e => {
 function cancelGesture(e) {
   points.delete(e.pointerId); if (!points.size) pinch = null;
   if (gesture?.id !== e.pointerId) return;
-  if (gesture.type === 'move' && gesture.moved) { gesture.n.x = gesture.ox; gesture.n.y = gesture.oy; render(); }
+  cancelMoveIfActive();
   if (gesture.type === 'pan' && gesture.moved) camera();
   if (gesture.right) lastRightRelease = performance.now();
   gesture = null; preview = null; scheduleDraw(); clearGestureCursor();
@@ -963,11 +1020,11 @@ paper.addEventListener('contextmenu',e => {
 document.addEventListener('pointerdown',e => {
   if (!panel.hidden && !e.target.closest('#panel,#file,#inspect-more,#save-error')) closePanel();
 });
-window.addEventListener('blur',() => { stopKeyPan(); space = false; gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
+window.addEventListener('blur',() => { stopKeyPan(); space = false; cancelMoveIfActive(); gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
 window.addEventListener('pagehide',flush);
 window.addEventListener('beforeunload',flush);
 document.addEventListener('visibilitychange',() => { if (document.hidden) flush(); });
-window.addEventListener('resize',() => { scheduleDraw(); placePanel(); });
+window.addEventListener('resize',() => { scheduleDraw(); placePanel(); placeInkHint(); });
 window.addEventListener('beforeprint',() => {
   finishEdit(); if (!model.nodes.length) return;
   const boxes = model.nodes.map(size), x = Math.min(...boxes.map(r => r.x)), y = Math.min(...boxes.map(r => r.y));

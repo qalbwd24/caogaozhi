@@ -45,27 +45,25 @@ function openPaper(){
     if(!url||url.split('?')[0]!==paperURL)event.preventDefault();
   });
   mainWindow.webContents.on('before-input-event',(event,input)=>{
-    if(input.type!=='keyDown'||input.isComposing)return;
+    if(input.type!=='keyDown')return;
     const key=String(input.key||'').toLowerCase();
     const code=String(input.code||'').toLowerCase();
-    if(input.shift&&(input.control||input.meta)&&!input.alt&&key==='s'){
+    if(!input.isComposing&&input.shift&&(input.control||input.meta)&&!input.alt&&key==='s'){
       event.preventDefault();
       void saveScreenshot(mainWindow);
       return;
     }
     // Handle the remapped function keys before Chromium can turn them into a
     // second DOM keydown. The renderer also handles keys in browser previews.
-    if(!input.control&&!input.meta&&!input.alt){
-      const direction=key==='f17'||code==='f17'?-1:key==='f18'||code==='f18'?1:0;
-      if(key==='f19'||code==='f19'){
-        event.preventDefault();
-        if(!input.isAutoRepeat)mainWindow.webContents.send('paper:tools');
-        return;
-      }
-      if(direction){
-        event.preventDefault();
-        mainWindow.webContents.send('paper:color-step',direction);
-      }
+    const direction=key==='f17'||code==='f17'?-1:key==='f18'||code==='f18'?1:0;
+    if(direction){
+      event.preventDefault();
+      if(!input.isAutoRepeat)mainWindow.webContents.send('paper:color-step',direction);
+      return;
+    }
+    if(!input.isComposing&&!input.control&&!input.meta&&!input.alt&&(key==='f19'||code==='f19')){
+      event.preventDefault();
+      if(!input.isAutoRepeat)mainWindow.webContents.send('paper:tools');
     }
   });
   mainWindow.once('ready-to-show',()=>mainWindow?.show());
