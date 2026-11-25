@@ -68,6 +68,12 @@ header {
 #file, #inspect-more { font-size: 20px; line-height: 1; }
 #save-error { min-height: 24px; width: 24px; padding: 0; color: #ad3033; font-weight: bold; }
 #paper { position: absolute; inset: var(--head) 0 0; overflow: hidden; touch-action: none; cursor: text; outline: 0; z-index: 1; }
+/* The paper grid belongs to the viewport, not the zoomed board. */
+#paper {
+  overscroll-behavior: none;
+  background-image: radial-gradient(circle, rgba(123, 77, 44, .40) 0 1px, transparent 1.35px);
+  background-size: 20px 20px;
+}
 #paper.pan { cursor: grab; }
 #paper.grabbing { cursor: grabbing; }
 #board { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }

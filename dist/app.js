@@ -9,7 +9,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 let model = blank(), selected = null, edgeId = null, ink = 'black', source = null, editing = null;
 let cam = {x:0,y:0,z:1}, gesture = null, pinch = null, preview = null, space = false, panelType = '';
 let workspace, loading = true, drawFrame = 0, wheelFrame = 0, saveError = '', renaming = false;
-let wheelDelta = {x:0,y:0}, lastPointer = null;
+let wheelDelta = {x:0,y:0}, lastPointer = null, lastRightRelease = -Infinity, viewSaveTimer = 0;
 const dom = new Map(), histories = new Map(), focusMemory = new Map();
 const node = id => model.nodes.find(n => n.id === id);
 const edge = id => model.edges.find(e => e.id === id);
@@ -54,6 +54,8 @@ function persist() {
   catch (error) { reportSaveError(error); }
 }
 function flush() {
+  applyWheelPan();
+  if (viewSaveTimer) { clearTimeout(viewSaveTimer); viewSaveTimer = 0; }
   if (editing) {
     const n = node(editing.id), value = editing.controller.read();
     if (n) { n.text = value.text; n.runs = value.runs; }
@@ -112,8 +114,9 @@ function redo() {
 }
 
 function camera(save = true) {
-  board.style.transform = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.z + ')';
-  $('fit').textContent = Math.round(cam.z * 100) + '%';
+  board.style.transform = 'translate3d(' + cam.x + 'px,' + cam.y + 'px,0) scale(' + cam.z + ')';
+  const fitLabel = Math.round(cam.z * 100) + '%', fitControl = $('fit');
+  if (fitControl.textContent !== fitLabel) fitControl.textContent = fitLabel;
   if (save && workspace && !loading) workspace.updateActive({cam});
 }
 function relative(x,y) { const b = paper.getBoundingClientRect(); return {x:x-b.left,y:y-b.top}; }
@@ -556,12 +559,19 @@ window.paperDesktop?.onColorStep?.(direction => cycleInk(direction));
 function applyWheelPan() {
   if (wheelFrame) { cancelAnimationFrame(wheelFrame); wheelFrame = 0; }
   if (!wheelDelta.x && !wheelDelta.y) return;
-  cam.x -= wheelDelta.x; cam.y -= wheelDelta.y; wheelDelta = {x:0,y:0}; camera();
+  cam.x -= wheelDelta.x; cam.y -= wheelDelta.y; wheelDelta = {x:0,y:0}; camera(false);
+  // The viewport follows each frame; write the view once the gesture settles.
+  if (viewSaveTimer) clearTimeout(viewSaveTimer);
+  viewSaveTimer = setTimeout(() => {
+    viewSaveTimer = 0;
+    if (workspace && !loading) workspace.updateActive({cam});
+  }, 100);
 }
 paper.addEventListener('wheel',e => {
   e.preventDefault();
-  const scale = e.deltaMode === 1 ? 18 : e.deltaMode === 2 ? paper.clientHeight : 1;
-  let dx = e.deltaX*scale, dy = e.deltaY*scale;
+  const mode = e.deltaMode;
+  let dx = e.deltaX*(mode === 1 ? 18 : mode === 2 ? paper.clientWidth : 1);
+  let dy = e.deltaY*(mode === 1 ? 18 : mode === 2 ? paper.clientHeight : 1);
   if (e.ctrlKey || e.metaKey) { zoom(cam.z*Math.exp(-dy*.006),relative(e.clientX,e.clientY)); return; }
   // Preserve both axes from precision trackpads; only remap a genuinely vertical mouse wheel.
   if (e.shiftKey && dx === 0) { dx = dy; dy = 0; }
@@ -583,16 +593,19 @@ paper.addEventListener('pointerdown',e => {
     }
     if (points.size > 1 || pinch) return;
   }
-  if (e.button !== 0 && e.button !== 1) return;
-  if (e.target.closest('.editor') && e.button === 0 && !e.altKey && !space) return;
+  if (![0,1,2].includes(e.button)) return;
+  const inEditor = e.target.closest('.editor'), right = e.button === 2;
+  if (right && inEditor) return; // Keep the native text menu inside editable text.
+  if (right) lastRightRelease = -Infinity;
+  if (inEditor && e.button === 0 && !e.altKey && !space) return;
   const id = e.target.closest('[data-node]')?.dataset.node, lid = e.target.closest('[data-edge]')?.dataset.edge;
   const editMemory = editing ? {id:editing.id,selection:editing.controller.getSelection()} : null;
   const beforeInteraction = capture();
-  const pan = e.button === 1 || space;
-  if (!pan) finishEdit();
+  const pan = right || e.button === 1 || space;
+  if (!pan && (id || e.target.closest('.port'))) finishEdit();
   e.preventDefault(); applyWheelPan();
   const base = {id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,cx:cam.x,cy:cam.y};
-  if (pan) gesture = {...base,type:'pan'};
+  if (pan) gesture = {...base,type:'pan',right,target:e.target};
   else if (e.target.closest('.port') && node(id)) gesture = {...base,type:'link',from:id};
   else if (source) gesture = {...base,type:'connectTap',nodeId:id};
   else if (id && node(id)) { const n = node(id); gesture = {...base,type:'move',n,ox:n.x,oy:n.y,before:beforeInteraction,editMemory}; }
@@ -609,7 +622,8 @@ paper.addEventListener('pointermove',e => {
   }
   if (gesture?.id !== e.pointerId) return;
   const g = gesture, dx = e.clientX-g.x, dy = e.clientY-g.y;
-  if (Math.hypot(dx,dy) > (e.pointerType === 'touch' ? 7 : 4)) g.moved = true;
+  const takingPan = ['pan','blank','edge','connectTap'].includes(g.type);
+  if (Math.hypot(dx,dy) > (e.pointerType === 'touch' ? 7 : takingPan ? 2 : 4)) g.moved = true;
   if (!g.moved) return;
   if (g.type === 'link') { preview = {id:g.from,...world(e.clientX,e.clientY)}; scheduleDraw(); }
   if (g.type === 'move') {
@@ -622,7 +636,7 @@ paper.addEventListener('pointermove',e => {
       scheduleDraw();
     }
   }
-  if (g.type === 'pan' || g.type === 'blank') { cam.x = g.cx+dx; cam.y = g.cy+dy; camera(); paper.classList.add('grabbing'); }
+  if (takingPan) { cam.x = g.cx+dx; cam.y = g.cy+dy; camera(false); paper.classList.add('grabbing'); }
 });
 function tapConnect(id,p) {
   if (!source) return;
@@ -636,14 +650,19 @@ paper.addEventListener('pointerup',e => {
   if (gesture?.id !== e.pointerId) return;
   const g = gesture; gesture = null; paper.classList.remove('grabbing');
   if (paper.hasPointerCapture?.(e.pointerId)) paper.releasePointerCapture(e.pointerId);
+  if (g.right) lastRightRelease = performance.now();
+  if (['pan','blank','edge','connectTap'].includes(g.type) && g.moved) {
+    cam.x = g.cx + e.clientX-g.x; cam.y = g.cy + e.clientY-g.y; camera(); return;
+  }
+  if (g.right) { showPaperContext(g.target); return; }
   const p = world(e.clientX,e.clientY);
-  if (g.type === 'blank' && !g.moved) { closePanel(); newNote(p.x,p.y); }
+  if (g.type === 'blank' && !g.moved) { finishEdit(); closePanel(); newNote(p.x,p.y); }
   if (g.type === 'move') {
     if (g.moved) { changed(g.before); selectNode(g.n.id); if (g.editMemory?.id === g.n.id) openEditor(g.n,g.editMemory.selection); else dom.get(g.n.id)?.focus({preventScroll:true}); }
     else { selectNode(g.n.id); openEditor(g.n,null,{x:e.clientX,y:e.clientY}); }
   }
-  if (g.type === 'edge' && !g.moved) { selectEdge(g.lid); paper.focus({preventScroll:true}); }
-  if (g.type === 'connectTap' && !g.moved) tapConnect(g.nodeId,p);
+  if (g.type === 'edge' && !g.moved) { finishEdit(); selectEdge(g.lid); paper.focus({preventScroll:true}); }
+  if (g.type === 'connectTap' && !g.moved) { finishEdit(); tapConnect(g.nodeId,p); }
   if (g.type === 'link') {
     preview = null;
     if (g.moved) {
@@ -659,16 +678,21 @@ function cancelGesture(e) {
   points.delete(e.pointerId); if (!points.size) pinch = null;
   if (gesture?.id !== e.pointerId) return;
   if (gesture.type === 'move' && gesture.moved) { gesture.n.x = gesture.ox; gesture.n.y = gesture.oy; render(); }
+  if (['pan','blank','edge','connectTap'].includes(gesture.type) && gesture.moved) camera();
+  if (gesture.right) lastRightRelease = performance.now();
   gesture = null; preview = null; scheduleDraw(); paper.classList.remove('grabbing');
 }
 paper.addEventListener('pointercancel',cancelGesture);
-paper.addEventListener('contextmenu',e => {
-  if (e.target.closest('.editor')) return;
-  e.preventDefault();
-  const id = e.target.closest('[data-node]')?.dataset.node, lid = e.target.closest('[data-edge]')?.dataset.edge;
+function showPaperContext(target) {
+  const id = target.closest('[data-node]')?.dataset.node, lid = target.closest('[data-edge]')?.dataset.edge;
   if (id) { selectNode(id); openProps(); }
   else if (lid) selectEdge(lid,true);
   else openFile();
+}
+paper.addEventListener('contextmenu',e => {
+  if (gesture?.right || (e.button === 2 && performance.now()-lastRightRelease < 500)) { e.preventDefault(); return; }
+  if (e.target.closest('.editor')) return;
+  e.preventDefault(); showPaperContext(e.target);
 });
 document.addEventListener('pointerdown',e => {
   if (!panel.hidden && !e.target.closest('#panel,#file,#inspect-more,#save-error')) closePanel();
