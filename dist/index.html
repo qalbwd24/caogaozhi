@@ -33,10 +33,10 @@ header {
 .file-tools { justify-self: end }
 .brand { display: flex; align-items: center; gap: 13px; white-space: nowrap; min-width: 0 }
 .brand strong { font-size: 14px; font-weight: 560; letter-spacing: .05em }
-.pips { display: flex; align-items: center; gap: 5px }
-.pips i { width: 8px; height: 8px; display: block; border-radius: 50%; background: #d8958b }
-.pips i:nth-child(2) { background: #dfc17c }
-.pips i:nth-child(3) { background: #92b29d }
+.page-icon { width: 16px; height: 18px; flex: none; color: #647582 }
+html[data-desktop] { --frame: 0px }
+html[data-desktop] #surface { border: 0; border-radius: 0 }
+html[data-desktop] .brand strong { color: #515758 }
 #date { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums }
 #fit,#file,#help { font-size: 14px; color: var(--muted) }
 #fit { min-width: 53px; font-variant-numeric: tabular-nums }
@@ -150,8 +150,6 @@ dialog form { text-align: right; margin-top: 14px }
   #inspector .swatch { width: 30px }
   .file-tools { grid-column: 2; grid-row: 1 }
   .brand { gap: 8px }
-  .pips { gap: 4px }
-  .pips i { width: 6px; height: 6px }
   #status { display: none }
   .note { width: 208px }
   .note:not(.sticky):not(.editing) { max-width: 208px }
@@ -169,7 +167,7 @@ dialog form { text-align: right; margin-top: 14px }
 </style></head><body>
 <div id="surface">
 <header>
-  <div class="brand"><span class="pips" aria-hidden="true"><i></i><i></i><i></i></span><strong>草稿纸</strong><span id="date" aria-hidden="true"></span></div>
+  <div class="brand"><svg class="page-icon" viewBox="0 0 17 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M3.1 2h6.8l3.9 3.9v12.2H3.1zM9.9 2v4.2h3.9M5.5 9.6h5.9M5.5 12.5h5.9M5.5 15.4h4.3"/></svg><strong id="bar-title">草稿纸</strong><span id="date" aria-hidden="true"></span></div>
   <div id="inspector" class="row" role="toolbar" aria-label="当前对象属性">
     <span id="inspector-name">笔色</span><div id="palette" class="row"></div>
     <div id="edge-controls" class="row" hidden>
@@ -196,6 +194,9 @@ dialog form { text-align: right; margin-top: 14px }
 <script>
 'use strict';
 const $=id=>document.getElementById(id), paper=$('paper'), board=$('board'), noteLayer=$('notes'), svg=$('links'), panel=$('panel');
+if(typeof location!=='undefined'&&location.protocol==='file:'&&new URLSearchParams(location.search).has('desktop')){
+ document.documentElement.dataset.desktop='true';$('bar-title').textContent='当前草稿';
+}
 $('date').textContent='／ '+new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric'}).format(new Date());
 const inks={black:['#272c29','黑 · 正文'],red:['#b83a42','红 · 重点、易错'],blue:['#255f9c','蓝 · 启发、观点'],gray:['#666a6c','铅 · 想法、待定']}, colors=Object.keys(inks), stkey='caogaozhi.local.v1';
 const newId=()=>globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2);
@@ -320,7 +321,7 @@ function example(){
  const nodes=list.map(([text,color,x,y,sticky])=>({id:newId(),text,color,x,y,...(sticky?{sticky:true}:{})}));const edges=[[0,1,'single','solid','gray',''],[0,2,'single','solid','gray',''],[2,3,'none','dash','gray','']].map(([a,b,arrow,style,color,label])=>({id:newId(),a:nodes[a].id,b:nodes[b].id,arrow,style,color,label}));return {nodes,edges};
 }
 $('demo').onclick=()=>{if(!model.nodes.length)newPaper(example());};
-$('file').onclick=()=>{if(panelType==='file'){closePanel();return;}finishEdit();showPanel('file','草稿文件');pbutton('导出 JSON',exportJson);pbutton('导入 JSON',()=>{$('upload').click();});pbutton('打印 / 保存为 PDF',()=>{closePanel();window.print();});pbutton('载入示例',()=>{if(!model.nodes.length||confirm('用示例替换当前草稿？可以撤销，也可先导出。'))newPaper(example());});pbutton('新建空白草稿',()=>{if(!model.nodes.length||confirm('清空当前草稿？可以撤销，也可先导出。'))newPaper();});pbutton('使用说明',()=>$('help').onclick());};
+$('file').onclick=()=>{if(panelType==='file'){closePanel();return;}finishEdit();showPanel('file','草稿文件');pbutton('导出 JSON',exportJson);pbutton('导入 JSON',()=>{$('upload').click();});pbutton('打印 / 保存为 PDF',()=>{closePanel();window.print();});if(window.paperDesktop)pbutton('保存截图',async()=>{closePanel();if(await window.paperDesktop.saveScreenshot())notify('截图已保存');});pbutton('载入示例',()=>{if(!model.nodes.length||confirm('用示例替换当前草稿？可以撤销，也可先导出。'))newPaper(example());});pbutton('新建空白草稿',()=>{if(!model.nodes.length||confirm('清空当前草稿？可以撤销，也可先导出。'))newPaper();});pbutton('使用说明',()=>$('help').onclick());};
 $('upload').onchange=async()=>{const f=$('upload').files[0];$('upload').value='';if(!f)return;try{if(f.size>8*1024*1024)throw Error('文件超过 8 MB');const next=normalize(JSON.parse(await f.text()));if(!model.nodes.length||confirm('用导入内容替换当前草稿？可以撤销，也可先导出。')){newPaper(next);notify('已导入草稿');}}catch{notify('无法导入：请选择有效的草稿 JSON');}};
 function undo(){finishEdit();if(!history.length)return;model=JSON.parse(history.pop());selected=null;edgeId=null;source=null;persist();closePanel();render();}
 $('undo').onclick=undo;
