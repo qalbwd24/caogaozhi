@@ -22,7 +22,7 @@ let touchpadProbe = null, touchpadProbeTimer = 0;
 let preferences = {...settingDefaults};
 try { const saved = JSON.parse(localStorage.getItem('caogaozhi.preferences.v1') || '{}'); if ([300,440,650].includes(saved.hoverDelay)) preferences.hoverDelay = saved.hoverDelay; if (typeof saved.inkHint === 'boolean') preferences.inkHint = saved.inkHint; if (saved.lineStyle === 'dash') preferences.lineStyle = 'dash'; if (typeof saved.zoomLocked === 'boolean') preferences.zoomLocked = saved.zoomLocked; } catch { /* nonessential UI preferences */ }
 function savePreferences() { try { localStorage.setItem('caogaozhi.preferences.v1',JSON.stringify(preferences)); } catch { /* retains the choice for this session */ } }
-const wheelMotion = [];
+const wheelMotion = [], heldControls = new Set();
 let lastPointer = null, viewSaveTimer = 0;
 const dom = new Map(), histories = new Map(), focusMemory = new Map();
 const node = id => model.nodes.find(n => n.id === id);
@@ -142,7 +142,7 @@ function camera(save = true) {
   paperGrid.style.transform = 'translate3d(' + g.x + 'px,' + g.y + 'px,0)';
   board.style.transform = 'translate3d(' + cam.x + 'px,' + cam.y + 'px,0) scale(' + cam.z + ')';
   const fitLabel = Math.round(cam.z * 100) + '%', fitControl = $('fit');
-  const fitTitle = preferences.zoomLocked ? '缩放已锁定 · 居中画布' : '显示全部 · Ctrl+0';
+  const fitTitle = '显示全部 · Ctrl+0';
   if (fitControl.title !== fitTitle) fitControl.title = fitTitle;
   if (fitControl.textContent !== fitLabel) fitControl.textContent = fitLabel;
   if (save && workspace && !loading) workspace.updateActive({cam});
@@ -151,7 +151,6 @@ function relative(x,y) { const b = paper.getBoundingClientRect(); return {x:x-b.
 function world(x,y) { const p = relative(x,y); return {x:(p.x-cam.x)/cam.z,y:(p.y-cam.y)/cam.z}; }
 function center() { return {x:paper.clientWidth/2,y:paper.clientHeight/2}; }
 function zoomCamera(camera,z,p) {
-  if (preferences.zoomLocked) return;
   z = Math.min(3,Math.max(.2,z));
   if (z === camera.z) return;
   camera.x = p.x - (p.x-camera.x)*z/camera.z;
@@ -159,7 +158,6 @@ function zoomCamera(camera,z,p) {
   camera.z = z;
 }
 function zoom(z,p) {
-  if (preferences.zoomLocked) return;
   const factor = z/cam.z;
   applyWheelPan(); zoomCamera(cam,cam.z*factor,p); camera();
 }
@@ -205,10 +203,10 @@ function drawParallelGuides() {
 function scheduleDraw() { if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = 0; drawParallelGuides(); draw(); }); }
 function fit() {
   applyWheelPan();
-  if (!model.nodes.length) { cam = {x:0,y:0,z:preferences.zoomLocked ? cam.z : 1}; camera(); return; }
+  if (!model.nodes.length) { cam = {x:0,y:0,z:1}; camera(); return; }
   const boxes = model.nodes.map(size), x = Math.min(...boxes.map(n => n.x)), y = Math.min(...boxes.map(n => n.y));
   const w = Math.max(...boxes.map(n => n.x+n.w))-x, h = Math.max(...boxes.map(n => n.y+n.h))-y, pad = 55;
-  if (!preferences.zoomLocked) cam.z = Math.max(.2,Math.min(1,(paper.clientWidth-pad*2)/Math.max(1,w),(paper.clientHeight-pad*2)/Math.max(1,h)));
+  cam.z = Math.max(.2,Math.min(1,(paper.clientWidth-pad*2)/Math.max(1,w),(paper.clientHeight-pad*2)/Math.max(1,h)));
   cam.x = (paper.clientWidth-w*cam.z)/2-x*cam.z; cam.y = (paper.clientHeight-h*cam.z)/2-y*cam.z; camera();
 }
 function reveal(n) {
@@ -394,8 +392,8 @@ function toggleZoomLock() {
   preferences.zoomLocked = !preferences.zoomLocked;
   savePreferences();
   closePanel(true); camera(false);
-  const label = preferences.zoomLocked ? '已锁定 ' + Math.round(cam.z*100) + '%' : '已解除锁定';
-  showActionHint(ink,'缩放',label,'缩放' + label,true);
+  const label = preferences.zoomLocked ? '已锁定' : '已解除锁定';
+  showActionHint(ink,'触控板缩放',label,'触控板缩放' + label,true);
 }
 function showInkHint(c,scope='笔色') { showActionHint(c,scope,inkCaptions[c],inkCaptions[c]); }
 function applyTypingInk(c) {
@@ -709,8 +707,8 @@ function showTools(page,owner=null) {
       branch(id,title);
       if (id === 'line') {
         const locked = preferences.zoomLocked;
-        const button = pbutton(locked ? '解除缩放锁定' : '锁定当前缩放',toggleZoomLock,
-          (locked ? '已锁定 · ' : '未锁定 · ') + Math.round(cam.z*100) + '%');
+        const button = pbutton(locked ? '解锁触控板缩放' : '锁定触控板缩放',toggleZoomLock,
+          locked ? '已锁定' : '未锁定');
         button.setAttribute('aria-pressed',String(locked));
       }
     }
@@ -751,8 +749,8 @@ function showTools(page,owner=null) {
     if (window.paperDesktop) pbutton('保存截图',() => {closePanel();window.paperDesktop.saveScreenshot();},'Ctrl+Shift+S');
   } else if (page === 'view') {
     pbutton('显示全部',() => {closePanel(true);fit();},'Ctrl+0');
-    pbutton('放大',() => {closePanel(true);zoom(cam.z*1.15,center());},'Ctrl++',preferences.zoomLocked);
-    pbutton('缩小',() => {closePanel(true);zoom(cam.z/1.15,center());},'Ctrl+-',preferences.zoomLocked);
+    pbutton('放大',() => {closePanel(true);zoom(cam.z*1.15,center());},'Ctrl++');
+    pbutton('缩小',() => {closePanel(true);zoom(cam.z/1.15,center());},'Ctrl+-');
     pbutton('新标签查看示例',() => addTab(example(),'示例'));
   } else if (page === 'settings') {
     const setting = (label,description,apply) => {
@@ -836,6 +834,12 @@ function connectTarget(id) {
   const before = capture(), result = createEdge(source,id); source = null;
   if (result) { selected = null; edgeId = result.id; changed(before); render(); }
 }
+document.addEventListener('keydown',e => {
+  if (e.key === 'Control') heldControls.add(e.code || e.key);
+},true);
+document.addEventListener('keyup',e => {
+  if (e.key === 'Control') heldControls.delete(e.code || e.key);
+},true);
 document.addEventListener('keydown',e => {
   if (e.altKey || e.getModifierState?.('AltGraph')) return;
   const key = e.key || '', k = key.toLowerCase(), cmd = e.ctrlKey || e.metaKey;
@@ -941,7 +945,6 @@ document.addEventListener('keyup',e => {
 window.paperDesktop?.onColorStep?.(direction => stepPaperShortcut(direction === -1 ? 'F17' : 'F18'));
 
 function queueWheelMotion(dx,dy,scale=0,anchor=null) {
-  if (preferences.zoomLocked) scale = 0;
   if (!(dx || dy || scale)) return;
   const last = wheelMotion.at(-1);
   if (!scale && last && !last.scale) { last.dx += dx; last.dy += dy; }
@@ -1011,8 +1014,9 @@ window.paperDesktop?.onTouchpad?.((dx,dy,scale,x,y) => {
   if (loading || gesture || !$('panel').hidden) return;
   clearHover();
   collectTouchpadSample(dx,dy,'native');
-  const at = scale && !preferences.zoomLocked ? (Number.isFinite(x) && Number.isFinite(y) ? relative(x,y) : center()) : null;
-  queueWheelMotion(dx,dy,scale,at);
+  const zoomStep = preferences.zoomLocked ? 0 : scale;
+  const at = zoomStep ? (Number.isFinite(x) && Number.isFinite(y) ? relative(x,y) : center()) : null;
+  queueWheelMotion(dx,dy,zoomStep,at);
 });
 paper.addEventListener('wheel',e => {
   e.preventDefault();
@@ -1020,7 +1024,12 @@ paper.addEventListener('wheel',e => {
   clearHover();
   const dx = e.deltaX*(mode === 1 ? 18 : mode === 2 ? paper.clientWidth : 1);
   const dy = e.deltaY*(mode === 1 ? 18 : mode === 2 ? paper.clientHeight : 1);
-  if (e.ctrlKey || e.metaKey) { if (!preferences.zoomLocked) queueWheelMotion(0,0,-dy*.006,relative(e.clientX,e.clientY)); return; }
+  if (e.ctrlKey || e.metaKey) {
+    // Chromium also represents a trackpad pinch as Ctrl+wheel, without a Control keydown.
+    const implicitTrackpadPinch = e.ctrlKey && !e.metaKey && !heldControls.size;
+    if (!implicitTrackpadPinch || !preferences.zoomLocked) queueWheelMotion(0,0,-dy*.006,relative(e.clientX,e.clientY));
+    return;
+  }
   if (e.isTrusted) collectTouchpadSample(dx,dy,'wheel');
   // Consume X and Y as supplied; never filter, swap or favor either axis in the app.
   queueWheelMotion(-dx,-dy);
@@ -1073,9 +1082,21 @@ function fingers() {
   const [a,b] = points.values();
   return {p:relative((a.x+b.x)/2,(a.y+b.y)/2),dist:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))};
 }
+function stepScreenZoom(g,e) {
+  const step = g.lastY - e.clientY;
+  g.lastY = e.clientY;
+  if (step && (e.ctrlKey || heldControls.size)) queueWheelMotion(0,0,step*.008,g.anchor);
+}
 paper.addEventListener('pointerdown',e => {
   if (e.target.closest('button')) return;
   if (e.pointerType === 'touch') {
+    if (gesture?.type === 'touchZoom') { e.preventDefault(); return; }
+    if (!points.size && e.button === 0 && (e.ctrlKey || heldControls.size) && panel.hidden && !dialogOpen()) {
+      e.preventDefault(); clearHover(); applyWheelPan();
+      points.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      gesture = {id:e.pointerId,type:'touchZoom',lastY:e.clientY,anchor:relative(e.clientX,e.clientY)};
+      paper.setPointerCapture?.(e.pointerId); return;
+    }
     points.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if (points.size === 2) {
       cancelMoveIfActive();
@@ -1109,8 +1130,9 @@ paper.addEventListener('pointerdown',e => {
 paper.addEventListener('pointermove',e => {
   lastPointer = {x:e.clientX,y:e.clientY};
   if (points.has(e.pointerId)) points.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (gesture?.type === 'touchZoom' && gesture.id === e.pointerId) { stepScreenZoom(gesture,e); return; }
   if (pinch && points.size >= 2) {
-    const f = fingers(), z = preferences.zoomLocked ? pinch.cam.z : Math.max(.2,Math.min(3,pinch.cam.z*f.dist/pinch.dist));
+    const f = fingers(), z = Math.max(.2,Math.min(3,pinch.cam.z*f.dist/pinch.dist));
     cam = {z,x:f.p.x-(pinch.p.x-pinch.cam.x)*z/pinch.cam.z,y:f.p.y-(pinch.p.y-pinch.cam.y)*z/pinch.cam.z}; camera(); return;
   }
   if (gesture?.id !== e.pointerId) { if (!gesture && !pinch) noteHover(e); return; }
@@ -1151,6 +1173,7 @@ paper.addEventListener('pointerup',e => {
   if (gesture?.id !== e.pointerId) return;
   const g = gesture; gesture = null; clearGestureCursor();
   if (paper.hasPointerCapture?.(e.pointerId)) paper.releasePointerCapture(e.pointerId);
+  if (g.type === 'touchZoom') { stepScreenZoom(g,e); applyWheelPan(); return; }
   if (g.type === 'pan' && g.moved) {
     cam.x = g.cx + e.clientX-g.x; cam.y = g.cy + e.clientY-g.y; camera(); return;
   }
@@ -1180,6 +1203,7 @@ function cancelGesture(e) {
   if (gesture?.id !== e.pointerId) return;
   cancelMoveIfActive();
   if (gesture.type === 'pan' && gesture.moved) camera();
+  if (gesture.type === 'touchZoom') applyWheelPan();
   gesture = null; preview = null; scheduleDraw(); clearGestureCursor();
 }
 paper.addEventListener('pointercancel',cancelGesture);
@@ -1199,7 +1223,7 @@ paper.addEventListener('contextmenu',e => {
 document.addEventListener('pointerdown',e => {
   if (!panel.hidden && !e.target.closest('#panel,#file,#inspect-more,#save-error')) closePanel();
 });
-window.addEventListener('blur',() => { space = false; cancelMoveIfActive(); gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
+window.addEventListener('blur',() => { heldControls.clear(); space = false; cancelMoveIfActive(); gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
 window.addEventListener('pagehide',flush);
 window.addEventListener('beforeunload',flush);
 document.addEventListener('visibilitychange',() => { if (document.hidden) flush(); });

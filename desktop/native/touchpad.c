@@ -226,12 +226,47 @@ static Value preferChinese(Env e,Info i) {
     napi_get_boolean(e,ok!=FALSE,&out); return out;
 }
 
+// Activate an already-enabled Microsoft Pinyin profile only in this process.
+static Value selectPinyin(Env e,Info i) {
+    static const GUID profileMgr={0x71c6e74c,0x0f28,0x11d8,{0xa8,0x2a,0x00,0x06,0x5b,0x84,0x43,0x5c}};
+    static const GUID clsid={0x81d4e9c9,0x1d3b,0x41bc,{0x9e,0x6c,0x4b,0x40,0xbf,0x79,0xe3,0x5e}};
+    static const GUID profile={0xfa550b04,0x5ad7,0x411f,{0xa5,0xac,0xca,0x03,0x8e,0xc5,0x15,0xd7}};
+    typedef HRESULT (WINAPI *ProfileFactory)(ITfInputProcessorProfiles**);
+    Value arg,out=NULL;
+    size_t count=1,len=0; void *buffer=NULL;
+    BOOL ok=FALSE;
+    if(!napi_get_cb_info(e,i,&count,&arg,NULL,NULL) && count==1 &&
+       !napi_get_buffer_info(e,arg,&buffer,&len) && len==sizeof(HWND)){
+        HWND h;memcpy(&h,buffer,sizeof h);
+        if(h && h==GetForegroundWindow() && GetWindowThreadProcessId(h,NULL)==GetCurrentThreadId() &&
+           PRIMARYLANGID(LOWORD((UINT_PTR)GetKeyboardLayout(0)))==LANG_CHINESE){
+            HMODULE tsf=GetModuleHandleW(L"msctf.dll");
+            ProfileFactory create=tsf?(ProfileFactory)GetProcAddress(tsf,"TF_CreateInputProcessorProfiles"):NULL;
+            ITfInputProcessorProfiles *profiles=NULL;
+            if(create && create(&profiles)==S_OK && profiles){
+                BOOL enabled=FALSE;
+                ITfInputProcessorProfileMgr *pm=NULL;
+                if(ITfInputProcessorProfiles_IsEnabledLanguageProfile(profiles,&clsid,0x0804,&profile,&enabled)==S_OK &&
+                   enabled && ITfInputProcessorProfiles_QueryInterface(profiles,&profileMgr,(void**)&pm)==S_OK && pm){
+                    // The process flag is intentionally the only activation flag.
+                    const DWORD forProcess=0x10000000;
+                    ok=ITfInputProcessorProfileMgr_ActivateProfile(pm,TF_PROFILETYPE_INPUTPROCESSOR,0x0804,
+                         &clsid,&profile,NULL,forProcess)==S_OK;
+                    ITfInputProcessorProfileMgr_Release(pm);
+                }
+                ITfInputProcessorProfiles_Release(profiles);
+            }
+        }
+    }
+    napi_get_boolean(e,ok!=FALSE,&out);return out;
+}
+
 __declspec(dllexport) Value napi_register_module_v1(Env e,Value exports) {
     HMODULE self=GetModuleHandleW(NULL);
 #define LOAD(n,p) n=(Status (*)p)GetProcAddress(self,#n);if(!n)return exports;
     NAPIS(LOAD)
-    const char *names[]={"start","stop","poll","preferChinese"};
-    Callback callbacks[]={start,stop,poll,preferChinese};
+    const char *names[]={"start","stop","poll","preferChinese","selectPinyin"};
+    Callback callbacks[]={start,stop,poll,preferChinese,selectPinyin};
     for(unsigned j=0;j<sizeof(callbacks)/sizeof(callbacks[0]);j++){
         Value v;
         if(!napi_create_function(e,names[j],strlen(names[j]),callbacks[j],NULL,&v))
