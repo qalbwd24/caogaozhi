@@ -70,6 +70,14 @@ static LRESULT CALLBACK proc(HWND hwnd,UINT msg,WPARAM w,LPARAM l,UINT_PTR sub,D
         reset('c');
         return DefSubclassProc(hwnd,msg,w,l);
     }
+    // Chromium calls DirectManipulation::SetContact from this hit test. If it
+    // claims this touchpad pointer, subsequent raw updates never reach us.
+    // We already registered this HWND to consume raw touchpad input, so keep
+    // only that pointer type out of Chromium's competing, railed viewport.
+    if(msg==DM_POINTERHITTEST) {
+        POINTER_INPUT_TYPE type;
+        if(GetPointerType(GET_POINTERID_WPARAM(w),&type) && type==TP)return 0;
+    }
     if(msg==WM_POINTERDOWN || msg==WM_POINTERUPDATE || msg==WM_POINTERUP || msg==WM_POINTERCAPTURECHANGED) {
         UINT32 id=LOWORD(w);
         POINTER_INPUT_TYPE type;

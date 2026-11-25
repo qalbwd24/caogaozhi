@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 const paper = $('paper'), board = $('board'), noteLayer = $('notes'), svg = $('links'), panel = $('panel');
 const inks = {black:['#322b25','黑 · 正文'],red:['#ad3536','红 · 重点、易错'],blue:['#285f94','蓝 · 启发、观点'],gray:['#796e61','铅 · 想法、待定']};
 const colors = Object.keys(inks);
+const inkCaptions = {black:'黑:正文',red:'红:重点',blue:'蓝:新颖',gray:'铅:待定'};
 const arrows = {none:'无箭头',single:'正向',reverse:'反向',double:'双向'};
 const newId = () => globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2);
 const blank = () => ({nodes:[], edges:[]});
@@ -221,7 +222,7 @@ function sync() {
   const h = historyFor(); $('undo').disabled = !h.past.length; $('redo').disabled = !h.future.length;
   paper.classList.toggle('pan',space);
   const e = edge(edgeId), n = node(selected), active = e?.color || (editing?.controller?.isComposing() ? ink : editing?.controller?.getColor()) || ink;
-  $('inspector-name').textContent = e ? '连线' : editing ? '输入' : '下一笔';
+  $('inspector-name').textContent = e ? '连线' : editing ? '输入' : inkCaptions[active];
   $('edge-controls').hidden = !e;
   if (e) { $('stroke-style').value = e.style; $('stroke-arrow').value = e.arrow; }
   $('inspect-more').hidden = !e && !n;
@@ -344,18 +345,18 @@ function placeInkHint() {
   tip.style.left = clamp(x,v.left+6,v.right-width-6)-s.left+'px';
   tip.style.top = clamp(y,v.top+6,v.bottom-height-6)-s.top+'px';
 }
-function showActionHint(c,scope,label) {
+function showActionHint(c,scope,label,display=scope + ' · ' + label) {
   announce(scope + '：' + label);
   if (!preferences.inkHint) return;
   const tip = $('ink-hint'); tip.style.setProperty('--hint-ink',inks[c][0]);
-  tip.querySelector('span').textContent = scope + ' · ' + label; tip.hidden = false; placeInkHint();
+  tip.querySelector('span').textContent = display; tip.hidden = false; placeInkHint();
   clearTimeout(inkHintTimer); inkHintTimer = setTimeout(() => { tip.hidden = true; },1050);
 }
-function showInkHint(c,scope) { showActionHint(c,scope,inks[c][1].split(' · ')[0]); }
+function showInkHint(c,scope='笔色') { showActionHint(c,scope,inkCaptions[c],inkCaptions[c]); }
 function applyTypingInk(c) {
   breakHistoryGroup(); ink = c;
   editing?.controller?.setTypingColor(c);
-  persist(); sync(); showInkHint(c,editing?.controller?.isComposing() ? '当前笔色' : '下一笔');
+  persist(); sync(); showInkHint(c);
 }
 function setInk(c) {
   if (!colors.includes(c)) return;
@@ -375,7 +376,7 @@ function setInk(c) {
     showInkHint(c,'选中文字');
     persist(); sync(); return;
   }
-  ink = c; persist(); sync(); showInkHint(c,'下一笔');
+  ink = c; persist(); sync(); showInkHint(c);
 }
 function chooseInk(c) { if (edge(edgeId)) setEdgeAttr('color',c); else setInk(c); }
 function cycleInk() {
@@ -890,16 +891,16 @@ function touchpadMessage(value) {
 }
 function beginTouchpadProbe() {
   clearTimeout(touchpadProbeTimer);
-  touchpadProbe = {both:0,xOnly:0,yOnly:0,axisSwitches:0,lastAxis:'',maxMinorRatio:0};
+  touchpadProbe = {both:0,xOnly:0,yOnly:0,axisSwitches:0,lastAxis:'',maxMinorRatio:0,native:0,wheel:0};
   touchpadMessage('请在纸面上双指斜滑，再不抬手拐个弯。8 秒后显示结果。');
   touchpadProbeTimer = setTimeout(finishTouchpadProbe,8000);
 }
-function collectTouchpadSample(dx,dy) {
+function collectTouchpadSample(dx,dy,path) {
   const probe = touchpadProbe;
   if (!probe || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
   const x = Math.abs(dx), y = Math.abs(dy), axis = x > 0 && y > 0 ? 'both' : x > 0 ? 'xOnly' : y > 0 ? 'yOnly' : '';
   if (!axis) return;
-  probe[axis]++;
+  probe[axis]++; probe[path]++;
   if (probe.lastAxis && probe.lastAxis !== axis) probe.axisSwitches++;
   if (axis === 'both') probe.maxMinorRatio = Math.max(probe.maxMinorRatio,Math.round(100*Math.min(x,y)/Math.max(x,y)));
   probe.lastAxis = axis;
@@ -907,11 +908,11 @@ function collectTouchpadSample(dx,dy) {
 function finishTouchpadProbe() {
   if (!touchpadProbe) return;
   clearTimeout(touchpadProbeTimer);
-  const {both,xOnly,yOnly,axisSwitches,maxMinorRatio} = touchpadProbe;
+  const {both,xOnly,yOnly,axisSwitches,maxMinorRatio,native,wheel} = touchpadProbe;
   touchpadProbe = null;
-  window.paperDesktop?.saveTouchpadProbe?.({both,xOnly,yOnly,axisSwitches,maxMinorRatio}).catch(() => {});
+  window.paperDesktop?.saveTouchpadProbe?.({both,xOnly,yOnly,axisSwitches,maxMinorRatio,native,wheel}).catch(() => {});
   const total = both+xOnly+yOnly;
-  touchpadMessage(total ? '触控板诊断：双轴 '+both+' / '+total+'；仅横 '+xOnly+'，仅纵 '+yOnly+'。' : '没有收到滚动位移。请重新开始，再在纸面内双指滑动。');
+  touchpadMessage(total ? '触控板诊断：双轴 '+both+' / '+total+'；原生 '+native+'，滚轮 '+wheel+'。' : '没有收到滚动位移。请重新开始，再在纸面内双指滑动。');
 }
 $('touchpad-feedback').querySelector('button').onclick = () => {
   clearTimeout(touchpadProbeTimer); touchpadProbe = null; $('touchpad-feedback').hidden = true;
@@ -919,7 +920,7 @@ $('touchpad-feedback').querySelector('button').onclick = () => {
 window.paperDesktop?.onTouchpad?.((dx,dy,scale,x,y) => {
   if (loading || gesture || !$('panel').hidden) return;
   clearHover();
-  collectTouchpadSample(dx,dy);
+  collectTouchpadSample(dx,dy,'native');
   wheelDelta.x -= dx; wheelDelta.y -= dy;
   if (scale) {
     applyWheelPan();
@@ -934,7 +935,7 @@ paper.addEventListener('wheel',e => {
   const dx = e.deltaX*(mode === 1 ? 18 : mode === 2 ? paper.clientWidth : 1);
   const dy = e.deltaY*(mode === 1 ? 18 : mode === 2 ? paper.clientHeight : 1);
   if (e.ctrlKey || e.metaKey) { zoom(cam.z*Math.exp(-dy*.006),relative(e.clientX,e.clientY)); return; }
-  if (e.isTrusted) collectTouchpadSample(dx,dy);
+  if (e.isTrusted) collectTouchpadSample(dx,dy,'wheel');
   // Consume X and Y as supplied; never filter, swap or favor either axis in the app.
   wheelDelta.x += dx; wheelDelta.y += dy;
   if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheelPan);

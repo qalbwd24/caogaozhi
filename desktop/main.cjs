@@ -89,7 +89,7 @@ else{
     ipcMain.handle('paper:save-touchpad-probe',async(event,value)=>{
       if(!mainWindow||event.sender!==mainWindow.webContents||
          event.senderFrame?.url.split('?')[0]!==paperURL)return false;
-      const keys=['both','xOnly','yOnly','axisSwitches','maxMinorRatio'];
+      const keys=['both','xOnly','yOnly','axisSwitches','maxMinorRatio','native','wheel'];
       if(!value||!keys.every(k=>Number.isSafeInteger(value[k])&&value[k]>=0&&value[k]<=100000)||value.maxMinorRatio>100)return false;
       const summary=Object.fromEntries(keys.map(k=>[k,value[k]]));
       try {

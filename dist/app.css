@@ -107,7 +107,7 @@ header {
 #ink-hint {
   position: absolute; z-index: 9; left: 50%; top: 42%; max-width: calc(100% - 12px); white-space: nowrap;
   display: flex; align-items: center; gap: 7px; padding: 6px 10px;
-  color: var(--ink); background: #fff4e2; border: 1px solid var(--line);
+  color: var(--hint-ink, var(--ink)); background: #fff4e2; border: 1px solid var(--line);
   border-radius: 5px; box-shadow: 0 3px 10px #5f41171a; font-size: 12px; pointer-events: none;
 }
 #touchpad-feedback {
