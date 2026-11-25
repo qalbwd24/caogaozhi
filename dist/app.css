@@ -84,7 +84,7 @@ header {
 .note { position: absolute; width: max-content; max-width: 300px; min-width: 12px; min-height: 31px; padding: 2px 0;
   border: 0; outline: 0; border-radius: 0; background: transparent;
   display: flex; align-items: flex-start; gap: 0; font-size: 17px; line-height: 1.6;
-  white-space: pre-wrap; overflow-wrap: anywhere; cursor: grab; user-select: none;
+  white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; user-select: none;
 }
 .note .content { min-width: 0; max-width: 300px; }
 .note .content, .editor {
@@ -105,6 +105,13 @@ header {
 .note .port:hover { background: #ebc99f; }
 #panel { position: absolute; z-index: 8; right: 12px; top: calc(var(--head) + 6px); width: min(286px, calc(100% - 24px)); max-height: calc(100dvh - var(--head) - 22px); overflow: auto; scrollbar-width: none;
   display: grid; gap: 1px; padding: 7px; border: 1px solid #9c714544; border-radius: 6px; background: #f9e5cd; box-shadow: 0 8px 24px #6039181c;
+}
+#panel[data-anchored] {
+  left: var(--menu-x, 7px); top: var(--menu-y, 7px); right: auto;
+  max-height: calc(100dvh - 14px);
+}
+#panel .menu-item:focus-visible, #panel input:focus-visible, #panel select:focus-visible {
+  background: #a4764c25;
 }
 #panel::-webkit-scrollbar { display: none; }
 #panel strong { font-weight: 600; font-size: 13px; color: var(--muted); padding: 7px 9px; }
