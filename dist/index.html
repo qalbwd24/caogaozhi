@@ -228,19 +228,140 @@ function reveal(n){const s=size(n),pad=14,low=paper.clientHeight-98, left=n.x*ca
 const dom=new Map();
 function size(n){const d=dom.get(n.id);return {x:n.x,y:n.y,w:d?.offsetWidth||240,h:d?.offsetHeight||52};}
 function svgEl(tag,attrs){const t=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs).forEach(([k,v])=>t.setAttribute(k,v));return t;}
+// Routing is a render-only operation: saved node coordinates and edge styles are untouched.
+function obstacle(n,pad=12){return {l:n.x-pad,r:n.x+n.w+pad,t:n.y-pad,b:n.y+n.h+pad};}
+function bounds(points){return {l:Math.min(...points.map(p=>p.x)),r:Math.max(...points.map(p=>p.x)),t:Math.min(...points.map(p=>p.y)),b:Math.max(...points.map(p=>p.y))};}
+function boxesTouch(a,b){return a.l<=b.r&&a.r>=b.l&&a.t<=b.b&&a.b>=b.t;}
+function inBox(p,r){return p.x>=r.l&&p.x<=r.r&&p.y>=r.t&&p.y<=r.b;}
+function mid(a,b){return {x:(a.x+b.x)/2,y:(a.y+b.y)/2};}
+function curveTouches(points,rs,depth=0){
+ const box=bounds(points);rs=rs.filter(r=>boxesTouch(box,r));
+ if(!rs.length)return false;
+ if(rs.some(r=>inBox(points[0],r)||inBox(points[3],r)))return true;
+ if(depth===14||Math.max(box.r-box.l,box.b-box.t)<.25)return true;
+ const [a,b,c,d]=points,ab=mid(a,b),bc=mid(b,c),cd=mid(c,d),p=mid(ab,bc),q=mid(bc,cd),m=mid(p,q);
+ return curveTouches([a,ab,p,m],rs,depth+1)||curveTouches([m,q,cd,d],rs,depth+1);
+}
+function cubicAt([a,b,c,d],t){const u=1-t;return {x:u*u*u*a.x+3*u*u*t*b.x+3*u*t*t*c.x+t*t*t*d.x,y:u*u*u*a.y+3*u*u*t*b.y+3*u*t*t*c.y+t*t*t*d.y};}
+function segmentClear(a,b,rs){const box=bounds([a,b]);return !rs.some(r=>boxesTouch(box,r));}
+function segmentCross(a,b,c,d){
+ const cross=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+ return cross(a,b,c)*cross(a,b,d)<0&&cross(c,d,a)*cross(c,d,b)<0;
+}
+function orthogonalRoute(start,goal,keepout,wires,initial,final,limit){
+ const box=bounds([start,goal]),distance=r=>Math.max(0,r.l-box.r,box.l-r.r)+Math.max(0,r.t-box.b,box.t-r.b);
+ const guides=keepout.filter(r=>distance(r)<=260).sort((a,b)=>distance(a)-distance(b)).slice(0,18);
+ // Only the local guides build the search grid. Every generated segment is checked
+ // against all obstacles that actually overlap the bounded search area.
+ const coords=(base,keys)=>[...new Set([...base,...guides.flatMap(r=>[r[keys[0]]-1,r[keys[1]]+1])])].sort((a,b)=>a-b);
+ const xs=coords([start.x,goal.x],['l','r']),ys=coords([start.y,goal.y],['t','b']);
+ const area={l:xs[0],r:xs.at(-1),t:ys[0],b:ys.at(-1)};
+ const rs=keepout.filter(r=>boxesTouch(area,r));
+ if(rs.some(r=>inBox(start,r)||inBox(goal,r)))return null;
+ const crossingWires=wires.filter(w=>boxesTouch(w.box,area)).slice(-32);
+ const n=xs.length,source=ys.indexOf(start.y)*n+xs.indexOf(start.x),target=ys.indexOf(goal.y)*n+xs.indexOf(goal.x);
+ const point=i=>({x:xs[i%n],y:ys[Math.floor(i/n)]}),manhattan=(a,b)=>Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
+ const states=n*ys.length*2, costs=new Float64Array(states).fill(Infinity), parents=new Int32Array(states).fill(-1),heap=[];
+ function push(v){
+  let i=heap.length;while(i>0){let p=(i-1)>>1;if(heap[p][0]<=v[0])break;heap[i]=heap[p];i=p;}heap[i]=v;
+ }
+ function pop(){
+  const root=heap[0],last=heap.pop();if(!heap.length)return root;
+  let i=0;while(i*2+1<heap.length){let j=i*2+1;if(j+1<heap.length&&heap[j+1][0]<heap[j][0])j++;if(heap[j][0]>=last[0])break;heap[i]=heap[j];i=j;}heap[i]=last;return root;
+ }
+ const first=source*2+initial;
+ costs[first]=0;push([manhattan(start,goal),0,first]);
+ const bend=33;
+ let end=-1,best=Infinity,expansions=0;
+ while(heap.length&&expansions++<limit){
+  const [rank,g,k]=pop();if(rank>=best)break;if(g!==costs[k])continue;
+  const i=k>>1,dir=k&1;
+  if(i===target){const score=g+(dir===final?0:bend);if(score<best){end=k;best=score;}continue;}
+  const p=point(i),col=i%n,row=Math.floor(i/n);
+  const neighbors=[[col>0?i-1:-1,0],[col+1<n?i+1:-1,0],[row>0?i-n:-1,1],[row+1<ys.length?i+n:-1,1]];
+  for(const [j,nextDir] of neighbors){
+   if(j<0)continue;
+   const q=point(j);if(!segmentClear(p,q,rs))continue;
+   let intersections=0;
+   const span=bounds([p,q]);
+   for(const w of crossingWires){if(!boxesTouch(w.box,span))continue;for(let x=1;x<w.points.length;x++)if(segmentCross(p,q,w.points[x-1],w.points[x]))intersections++;}
+   const nk=j*2+nextDir,ng=g+manhattan(p,q)+(dir===nextDir?0:bend)+intersections*30;
+   if(ng>=costs[nk])continue;
+   costs[nk]=ng;parents[nk]=k;push([ng+manhattan(q,goal),ng,nk]);
+  }
+ }
+ if(end<0)return null;
+ const result=[];
+ for(let i=end;i>=0;i=parents[i])result.push(point(i>>1));
+ return result.reverse();
+}
+function roundedRoute(points,keepout){
+ const way=[];
+ for(const p of points){
+  if(way.length&&p.x===way.at(-1).x&&p.y===way.at(-1).y)continue;
+  if(way.length>1){const a=way.at(-2),b=way.at(-1);
+   if((a.x===b.x&&b.x===p.x&&(b.y-a.y)*(p.y-b.y)>0)||(a.y===b.y&&b.y===p.y&&(b.x-a.x)*(p.x-b.x)>0))way.pop();
+  }
+  way.push(p);
+ }
+ let path='M'+way[0].x+' '+way[0].y;
+ const toward=(a,b,d)=>{const f=d/Math.hypot(b.x-a.x,b.y-a.y);return {x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f};};
+ for(let i=1;i<way.length-1;i++){
+  const a=way[i-1],p=way[i],b=way[i+1];
+  let r=Math.min(12,Math.hypot(a.x-p.x,a.y-p.y)/2,Math.hypot(b.x-p.x,b.y-p.y)/2);
+  let f,g;
+  while(r>=1){f=toward(p,a,r);g=toward(p,b,r);if(!keepout.some(o=>boxesTouch(bounds([f,p,g]),o)))break;r/=2;}
+  path+=r<1?' L'+p.x+' '+p.y:' L'+f.x+' '+f.y+' Q'+p.x+' '+p.y+' '+g.x+' '+g.y;
+ }
+ const end=way.at(-1);path+=' L'+end.x+' '+end.y;
+ const lengths=way.slice(1).map((b,i)=>Math.hypot(b.x-way[i].x,b.y-way[i].y));
+ let half=lengths.reduce((a,b)=>a+b,0)/2, label=way[0];
+ for(let i=0;i<lengths.length;i++){if(half<=lengths[i]){label=toward(way[i],way[i+1],half);break;}half-=lengths[i];}
+ return {path,points:way,label};
+}
+function edgeGeometry(A,B,others,previous,allowRoute=true){
+ const ac={x:A.x+A.w/2,y:A.y+A.h/2},bc={x:B.x+B.w/2,y:B.y+B.h/2};
+ const side=(a,b,s)=>Math.abs((b.x-a.x)/s.w)>=Math.abs((b.y-a.y)/s.h)?{x:Math.sign(b.x-a.x)||1,y:0}:{x:0,y:Math.sign(b.y-a.y)||1};
+ const u=side(ac,bc,A),v=side(bc,ac,B),p={x:ac.x+u.x*(A.w/2+3),y:ac.y+u.y*(A.h/2+3)},q={x:bc.x+v.x*(B.w/2+3),y:bc.y+v.y*(B.h/2+3)},pull=Math.min(110,Math.max(23,Math.hypot(q.x-p.x,q.y-p.y)*.45)), c={x:p.x+u.x*pull,y:p.y+u.y*pull},d={x:q.x+v.x*pull,y:q.y+v.y*pull};
+ const cubic=[p,c,d,q],original='M'+p.x+' '+p.y+' C'+c.x+' '+c.y+' '+d.x+' '+d.y+' '+q.x+' '+q.y;
+ const unchanged=(attempted=false)=>({path:original,label:cubicAt(cubic,.5),points:Array.from({length:9},(_,i)=>cubicAt(cubic,i/8)),attempted,routed:false});
+ if(!allowRoute||!curveTouches(cubic,others))return unchanged();
+ const a=obstacle(A,1),b=obstacle(B,1),keepout=[...others,a,b],stub=(p,s,k)=>({x:p.x+s.x*k,y:p.y+s.y*k});
+ // Start with the original attachment; if the short exit itself is blocked,
+ // try other sides rather than routing through the source or destination note.
+ const sides=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}],axis=s=>s.x?0:1;
+ function ports(center,n,preferred){
+  return [preferred,...sides.filter(s=>s.x!==preferred.x||s.y!==preferred.y)].map(s=>{
+   const p={x:center.x+s.x*(n.w/2+3),y:center.y+s.y*(n.h/2+3)};
+   return {p,s,exit:stub(p,s,8)};
+  });
+ }
+ const sources=ports(ac,A,u),targets=ports(bc,B,v);
+ for(const i of [0,1,2,3])for(const j of [0,1,2,3]){
+  const f=sources[i],g=targets[j];
+  if(!segmentClear(f.p,f.exit,keepout)||!segmentClear(g.p,g.exit,keepout))continue;
+  const route=orthogonalRoute(f.exit,g.exit,keepout,previous,axis(f.s),axis(g.s),i||j?500:1800);
+  if(route)return {...roundedRoute([f.p,...route,g.p],keepout),attempted:true,routed:true};
+ }
+ return unchanged(true);
+}
 function draw(){
  const defs=svgEl('defs',{});for(const [k,[c]] of Object.entries(inks)){let marker=svgEl('marker',{id:'arrow-'+k,viewBox:'0 0 12 10',refX:10,refY:5,markerWidth:8,markerHeight:7,orient:'auto-start-reverse'});marker.append(svgEl('path',{d:'M1 1 L10 5 1 9',stroke:c,'stroke-width':1.5,fill:'none'}));defs.append(marker);}
  svg.replaceChildren(defs);
+ const nodes=new Map(model.nodes.map(n=>[n.id,size(n)]));
+ const blockers=[...nodes].map(([id,rect])=>({id,...obstacle(rect)}));
+ const wires=[];let attemptedRoutes=0;
  for(const e of model.edges){
-  const a=node(e.a),b=node(e.b);if(!a||!b)continue;
-  const A=size(a),B=size(b),ac={x:A.x+A.w/2,y:A.y+A.h/2},bc={x:B.x+B.w/2,y:B.y+B.h/2};
-  const side=(a,b,sa)=>Math.abs((b.x-a.x)/sa.w)>=Math.abs((b.y-a.y)/sa.h)?{x:Math.sign(b.x-a.x)||1,y:0}:{x:0,y:Math.sign(b.y-a.y)||1};
-  const u=side(ac,bc,A),v=side(bc,ac,B),p={x:ac.x+u.x*(A.w/2+3),y:ac.y+u.y*(A.h/2+3)},q={x:bc.x+v.x*(B.w/2+3),y:bc.y+v.y*(B.h/2+3)},pull=Math.min(110,Math.max(23,Math.hypot(q.x-p.x,q.y-p.y)*.45)), c={x:p.x+u.x*pull,y:p.y+u.y*pull},d={x:q.x+v.x*pull,y:q.y+v.y*pull};
-  const path='M'+p.x+' '+p.y+' C'+c.x+' '+c.y+' '+d.x+' '+d.y+' '+q.x+' '+q.y;
+  const A=nodes.get(e.a),B=nodes.get(e.b);if(!A||!B)continue;
+  const allowed=attemptedRoutes<28;
+  const rs=allowed?blockers.filter(r=>r.id!==e.a&&r.id!==e.b):[];
+  const {path,label,points,attempted}=edgeGeometry(A,B,rs,wires,allowed);
+  if(attempted)attemptedRoutes++;
+  wires.push({points,box:bounds(points)});
   const hit=svgEl('path',{d:path,class:'hit','data-edge':e.id,tabindex:0,role:'button','aria-label':'选择连线'+(e.label?'：'+e.label:'')});const wire=svgEl('path',{d:path,class:'wire'+(e.id===edgeId?' chosen':''),stroke:inks[e.color][0]});
   if(e.style==='dash')wire.setAttribute('stroke-dasharray','6 5');if(e.arrow!=='none')wire.setAttribute('marker-end','url(#arrow-'+e.color+')');if(e.arrow==='double')wire.setAttribute('marker-start','url(#arrow-'+e.color+')');
   svg.append(hit,wire);
-  if(e.label){const t=svgEl('text',{x:(p.x+3*c.x+3*d.x+q.x)/8,y:(p.y+3*c.y+3*d.y+q.y)/8-7,'text-anchor':'middle',fill:inks[e.color][0],stroke:'#f9f8f4','stroke-width':5,'paint-order':'stroke','font-size':12});t.textContent=e.label;svg.append(t);}
+  if(e.label){const t=svgEl('text',{x:label.x,y:label.y-7,'text-anchor':'middle',fill:inks[e.color][0],stroke:'#f9f8f4','stroke-width':5,'paint-order':'stroke','font-size':12});t.textContent=e.label;svg.append(t);}
  }
  if(preview){const a=node(preview.id);if(a){const s=size(a),x=s.x+s.w,y=s.y+s.h/2;svg.append(svgEl('path',{d:'M'+x+' '+y+' Q'+((x+preview.x)/2)+' '+y+' '+preview.x+' '+preview.y,class:'wire',stroke:'#527362','stroke-dasharray':'5 4'}));}}
 }
