@@ -139,7 +139,27 @@ function zoom(z,p) {
 }
 function size(n) { const d = dom.get(n.id); return {x:n.x,y:n.y,w:d?.offsetWidth || 220,h:d?.offsetHeight || 32}; }
 function svgEl(tag,attrs) { const t = document.createElementNS('http://www.w3.org/2000/svg',tag); Object.entries(attrs).forEach(([k,v]) => t.setAttribute(k,v)); return t; }
-function scheduleDraw() { if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = 0; draw(); }); }
+function drawParallelGuides() {
+  const groups = new Map(), layer = $('parallel-guides'), fragment = document.createDocumentFragment();
+  for (const n of model.nodes) {
+    if (!n.parallelId || (!n.text.trim() && editing?.id !== n.id)) continue;
+    if (!groups.has(n.parallelId)) groups.set(n.parallelId,[]);
+    groups.get(n.parallelId).push(n);
+  }
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const rows = members.map(n => ({x:n.x,y:n.y+Math.min(16,size(n).h/2)})).sort((a,b) => a.y-b.y);
+    const x = Math.min(...rows.map(p => p.x))-15;
+    const path = ['M',x,rows[0].y,'V',rows.at(-1).y];
+    for (const row of rows) {
+      // Keep the guide low-key and avoid long horizontal runs on uneven imported groups.
+      if (row.x-x <= 45) path.push('M',x,row.y,'H',row.x-7);
+    }
+    fragment.append(svgEl('path',{class:'parallel-guide',d:path.join(' ')}));
+  }
+  layer.replaceChildren(fragment);
+}
+function scheduleDraw() { if (!drawFrame) drawFrame = requestAnimationFrame(() => { drawFrame = 0; drawParallelGuides(); draw(); }); }
 function fit() {
   applyWheelPan();
   if (!model.nodes.length) { cam = {x:0,y:0,z:1}; camera(); return; }

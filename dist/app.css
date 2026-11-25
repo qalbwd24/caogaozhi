@@ -82,7 +82,11 @@ header {
 #paper { scroll-axis-lock: none; }
 #paper.grabbing { cursor: grabbing; }
 #board { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
-#links { position: absolute; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+#parallel-guides, #links { position: absolute; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.parallel-guide {
+  fill: none; stroke: #a27852; stroke-opacity: .38; stroke-width: 1;
+  stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none;
+}
 .wire { fill: none; stroke-width: 1.45; pointer-events: none; }
 .hit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
 .hit:hover + .wire, .wire.chosen { stroke-width: 2.2; }
@@ -170,7 +174,7 @@ dialog form { text-align: right; margin-top: 18px; }
   #paper { position: relative; background: white; overflow: visible; inset: auto; width: var(--print-w,100%); height: var(--print-h,auto); }
   #board { transform: var(--print-t,none) !important; }
   .note::before { display: none; }
-  .note, .wire { print-color-adjust: exact; }
+  .note, .wire, .parallel-guide { print-color-adjust: exact; }
 }
 @media (forced-colors: active) {
   button:focus-visible, .tab.active { outline: 1px solid Highlight; }
