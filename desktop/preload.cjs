@@ -9,11 +9,12 @@ contextBridge.exposeInMainWorld('paperDesktop',Object.freeze({
   },
   saveScreenshot:()=>ipcRenderer.invoke('paper:save-screenshot'),
   saveTouchpadProbe:(summary)=>ipcRenderer.invoke('paper:save-touchpad-probe',summary),
+  queryImeModeRequest:()=>ipcRenderer.invoke('paper:ime-mode-requested'),
   probeShortcuts:()=>ipcRenderer.invoke('paper:probe-shortcuts'),
   onTouchpad:(callback)=>{
     if(typeof callback!=='function')return;
-    ipcRenderer.on('paper:touchpad',(_event,dx,dy,zoom,x,y)=>{
-      if([dx,dy,zoom].every(Number.isFinite))callback(dx,dy,zoom,x,y);
+    ipcRenderer.on('paper:touchpad',(_event,dx,dy,zoom,x,y,ctrl)=>{
+      if([dx,dy,zoom].every(Number.isFinite))callback(dx,dy,zoom,x,y,ctrl===true);
     });
   },
   onColorStep:(callback)=>{

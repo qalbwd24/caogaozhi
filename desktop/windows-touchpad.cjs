@@ -21,14 +21,15 @@ function attachWindowsTouchpad(win, screen) {
     timer=setInterval(()=>{
       if(win.isDestroyed()||win.webContents.isDestroyed()||!win.isFocused()){stop();return;}
       // A single IPC delivery per tick, even if Windows reported several contact frames.
+      const ctrl=device.ctrlHeld?.()===true;
       let dx=0,dy=0,z=0,anchor;
       motion.consume(device.poll(),performance.now(),(x,y,zoom,px,py)=>{
         dx+=x;dy+=y;z+=zoom;
-        if(zoom)anchor=screen.screenToDipPoint({x:px,y:py});
-      });
+        if(Number.isFinite(px)&&Number.isFinite(py))anchor=screen.screenToDipPoint({x:px,y:py});
+      },!ctrl);
       if(dx||dy||z){
         const rect=anchor&&win.getContentBounds();
-        win.webContents.send('paper:touchpad',dx,dy,z,rect?anchor.x-rect.x:null,rect?anchor.y-rect.y:null);
+        win.webContents.send('paper:touchpad',dx,dy,z,rect?anchor.x-rect.x:null,rect?anchor.y-rect.y:null,ctrl);
       }
     },8);
     timer.unref();

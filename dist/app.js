@@ -773,6 +773,13 @@ function showTools(page,owner=null) {
     setting('换色提示',() => preferences.inkHint ? '开' : '关',() => { preferences.inkHint = !preferences.inkHint; if (!preferences.inkHint) $('ink-hint').hidden = true; });
     pbutton('触控板诊断',() => { closePanel(true); beginTouchpadProbe(); },'8 秒');
     if (window.paperDesktop?.probeShortcuts) pbutton('快捷键诊断',() => { closePanel(true); void runShortcutProbe(); },'8 秒');
+    if (window.paperDesktop?.queryImeModeRequest) pbutton('中文模式检查',async () => {
+      closePanel(true);
+      try {
+        const accepted=await window.paperDesktop.queryImeModeRequest();
+        touchpadMessage(accepted === null ? '还没进入文字块。' : accepted ? '系统接受了中文模式请求；请以实际输入为准。' : '当前输入法没有接受中文模式请求。');
+      } catch { touchpadMessage('未能查询中文模式请求。'); }
+    });
     const delays = [300,440,650];
     setting('悬停拖动等待',() => preferences.hoverDelay+' ms',() => {preferences.hoverDelay = delays[(delays.indexOf(preferences.hoverDelay)+1)%delays.length];});
   }
@@ -1023,12 +1030,25 @@ function finishTouchpadProbe() {
 $('touchpad-feedback').querySelector('button').onclick = () => {
   clearTimeout(touchpadProbeTimer); touchpadProbe = null; $('touchpad-feedback').hidden = true;
 };
-window.paperDesktop?.onTouchpad?.((dx,dy,scale,x,y) => {
+function touchpadZoomAnchor(x,y) {
+  if (Number.isFinite(x) && Number.isFinite(y)) return relative(x,y);
+  if (lastPointer && Number.isFinite(lastPointer.x) && Number.isFinite(lastPointer.y)) return relative(lastPointer.x,lastPointer.y);
+  return center();
+}
+window.paperDesktop?.onTouchpad?.((dx,dy,scale,x,y,nativeCtrl) => {
   if (loading || gesture || !$('panel').hidden) return;
   clearHover();
   collectTouchpadSample(dx,dy,'native');
+  const explicitCtrl = typeof nativeCtrl === 'boolean' ? nativeCtrl : heldControls.size > 0;
+  if (explicitCtrl) {
+    // Deliberate Ctrl+two-finger vertical swipe is manual zoom, not a pinch.
+    // Do not pan as well or add the raw pinch delta to the scroll zoom.
+    const isContact = typeof nativeCtrl !== 'boolean' || (Number.isFinite(x) && Number.isFinite(y));
+    if (dy && isContact) queueWheelMotion(0,0,-dy*.006,touchpadZoomAnchor(x,y));
+    return;
+  }
   const zoomStep = preferences.zoomLocked ? 0 : scale;
-  const at = zoomStep ? (Number.isFinite(x) && Number.isFinite(y) ? relative(x,y) : center()) : null;
+  const at = zoomStep ? touchpadZoomAnchor(x,y) : null;
   queueWheelMotion(dx,dy,zoomStep,at);
 });
 paper.addEventListener('wheel',e => {
@@ -1181,8 +1201,18 @@ paper.addEventListener('pointerdown',e => {
 });
 paper.addEventListener('pointermove',e => {
   lastPointer = {x:e.clientX,y:e.clientY};
-  if (points.has(e.pointerId)) points.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const previousTouch = points.get(e.pointerId);
+  if (previousTouch) points.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if (gesture?.type === 'touchZoom' && gesture.id === e.pointerId) { stepScreenZoom(gesture,e); return; }
+  // A finger can already be resting on the screen when Ctrl is pressed.
+  // Only upgrade an untouched one-finger action; never interrupt an active drag.
+  if (previousTouch && e.pointerType === 'touch' && points.size === 1 && !pinch &&
+      (!gesture || (gesture.id === e.pointerId && !gesture.moved && ['blank','note','edge'].includes(gesture.type))) &&
+      (e.ctrlKey || heldControls.size) && panel.hidden && !dialogOpen()) {
+    const anchor = gesture ? {x:gesture.x,y:gesture.y} : previousTouch;
+    gesture = {id:e.pointerId,type:'touchZoom',lastY:anchor.y,anchor:relative(anchor.x,anchor.y)};
+    stepScreenZoom(gesture,e); return;
+  }
   if (pinch && points.size >= 2) {
     const f = fingers(), z = Math.max(.2,Math.min(3,pinch.cam.z*f.dist/pinch.dist));
     cam = {z,x:f.p.x-(pinch.p.x-pinch.cam.x)*z/pinch.cam.z,y:f.p.y-(pinch.p.y-pinch.cam.y)*z/pinch.cam.z}; camera(); return;

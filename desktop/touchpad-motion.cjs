@@ -6,7 +6,8 @@ const GAIN=.11, STRIDE=7;
 class TouchpadMotion {
   reset(){ this.prev=null; this.inertia=null; this.vx=0; this.vy=0; this.slop=0; }
   constructor(){ this.reset(); }
-  consume(frames, now, emit){
+  consume(frames, now, emit, allowCoast=true){
+    if(!allowCoast){this.inertia=null;this.vx=this.vy=0;}
     for(let i=0;i+STRIDE<=frames.length;i+=STRIDE){
       const [phase,x,y,square,px,py,t]=frames.slice(i,i+STRIDE);
       if(phase===98){ // begin, or contact identity changed
@@ -17,7 +18,7 @@ class TouchpadMotion {
       if(phase===99){ this.reset(); continue; }
       if(phase===101){
         const age=this.prev?(t-this.prev.t)>>>0:Infinity;
-        if(age<=65 && Math.hypot(this.vx,this.vy)>.11){
+        if(allowCoast && age<=65 && Math.hypot(this.vx,this.vy)>.11){
           this.inertia={t:now,start:now};
         }
         this.prev=null;
@@ -36,7 +37,7 @@ class TouchpadMotion {
         zoom=Math.sign(this.slop)*Math.min(.2,Math.abs(this.slop)-.02);
         this.slop=Math.sign(this.slop)*.02;
       }
-      if(zoom || !step || step>70){ this.vx=this.vy=0; }
+      if(!allowCoast || zoom || !step || step>70){ this.vx=this.vy=0; }
       else {
         const a=.7;
         this.vx=this.vx*(1-a)+a*dx/step;this.vy=this.vy*(1-a)+a*dy/step;
@@ -50,7 +51,7 @@ class TouchpadMotion {
         const fade=Math.exp(-d/82);
         this.vx*=fade;this.vy*=fade;
         this.inertia.t=now;
-        emit(this.vx*d,this.vy*d,0,0,0);
+        emit(this.vx*d,this.vy*d,0,null,null);
       }
     }
   }

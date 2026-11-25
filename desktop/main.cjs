@@ -8,7 +8,7 @@ const {writeFile}=require('node:fs/promises');
 app.setName('草稿纸');
 app.setPath('userData',path.join(app.getPath('appData'),'Caogaozhi'));
 if(process.platform==='win32') app.setAppUserModelId('com.caogaozhi.scratchpad');
-let mainWindow, saving=false, keyProbe=null, startupPinyin=false;
+let mainWindow, saving=false, keyProbe=null, imeModeRequested=null;
 const paper=path.join(__dirname,'dist','index.html');
 const paperURL=pathToFileURL(paper).href;
 
@@ -50,16 +50,11 @@ function noteShortcut(name,input,dispatched=false) {
   }
 }
 
-function prepareChinese(win,chooseProfile) {
+function prepareChinese(win) {
   if(process.platform!=='win32'||process.arch!=='x64'||!win||win.isDestroyed()||!win.isFocused())return false;
-  try {
-    const input=require('./touchpad-win32-x64.node'), handle=win.getNativeWindowHandle();
-    const selected=chooseProfile ? input.selectPinyin?.(handle)===true : false;
-    input.preferChinese?.(handle);
-    return selected;
-  } catch { return false; }
+  try { return require('./touchpad-win32-x64.node').preferChinese?.(win.getNativeWindowHandle())===true; }
+  catch { return false; }
 }
-
 function openPaper(){
   if(mainWindow) return;
   mainWindow=new BrowserWindow({
@@ -93,7 +88,6 @@ function openPaper(){
     }
   });
   attachWindowsTouchpad(mainWindow,screen);
-  mainWindow.once('focus',()=>{ startupPinyin=prepareChinese(mainWindow,true); });
   mainWindow.once('ready-to-show',()=>mainWindow?.show());
   mainWindow.on('closed',()=>{mainWindow=null;});
   mainWindow.loadFile(paper,{query:{desktop:'1'}}).catch((error)=>{
@@ -129,13 +123,19 @@ else{
       return probe;
     });
 
+    ipcMain.handle('paper:ime-mode-requested',event=>{
+      const win=mainWindow;
+      if(!win || event.sender!==win.webContents || event.senderFrame!==win.webContents.mainFrame ||
+         event.senderFrame?.url.split('?')[0]!==paperURL)return null;
+      return imeModeRequested;
+    });
     let initialEditorFocusSeen=false;
     ipcMain.on('paper:initial-edit',event=>{
       const win=mainWindow;
       if(initialEditorFocusSeen || !win || !win.isFocused() || event.sender!==win.webContents ||
          event.senderFrame!==win.webContents.mainFrame || event.senderFrame?.url.split('?')[0]!==paperURL)return;
       initialEditorFocusSeen=true;
-      prepareChinese(win,!startupPinyin);
+      imeModeRequested=prepareChinese(win);
     });
 
     ipcMain.handle('paper:save-screenshot',(event)=>{

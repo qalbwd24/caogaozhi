@@ -42,3 +42,11 @@ test('a pause before release or a replaced contact cannot jump the viewport',()=
   assert.deepEqual(next(p,[],1008),[]);
   assert.deepEqual(next(p,[b(300,300,s,110),c(),m(-100,-100,s,120)]),[]);
 });
+
+test('Ctrl zoom must not leave motion that can turn into pan inertia after release',()=>{
+  const p=new TouchpadMotion(),s=10000, out=[];
+  p.consume([b(0,0,s,1),m(110,120,s,9)].flat(),100,(...v)=>out.push(v),false);
+  assert.equal(out.length,1);
+  assert.deepEqual(next(p,[e(13)],108),[]);
+  assert.deepEqual(next(p,[],119),[]);
+});
