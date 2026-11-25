@@ -45,10 +45,10 @@ function openPaper(){
     if(!url||url.split('?')[0]!==paperURL)event.preventDefault();
   });
   mainWindow.webContents.on('before-input-event',(event,input)=>{
-    if(input.type!=='keyDown')return;
+    if(input.type!=='keyDown'||input.alt)return;
     const key=String(input.key||'').toLowerCase();
     const code=String(input.code||'').toLowerCase();
-    if(!input.isComposing&&input.shift&&(input.control||input.meta)&&!input.alt&&key==='s'){
+    if(!input.isComposing&&input.shift&&(input.control||input.meta)&&key==='s'){
       event.preventDefault();
       void saveScreenshot(mainWindow);
       return;
@@ -61,7 +61,7 @@ function openPaper(){
       if(!input.isAutoRepeat)mainWindow.webContents.send('paper:color-step',direction);
       return;
     }
-    if(!input.isComposing&&!input.control&&!input.meta&&!input.alt&&(key==='f19'||code==='f19')){
+    if(!input.isComposing&&!input.control&&!input.meta&&(key==='f19'||code==='f19')){
       event.preventDefault();
       if(!input.isAutoRepeat)mainWindow.webContents.send('paper:tools');
     }

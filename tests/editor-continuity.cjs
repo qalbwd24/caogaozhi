@@ -84,7 +84,7 @@ test('changing pen color separates later IME typing from earlier text in undo hi
 test('clicking between tabs restores the original editing range and accepts immediate typing', async t => {
   const page = await pageFor(t);
   await writeFirst(page, '甲乙丙丁戊');
-  await page.keyboard.press('Control+Alt+n');
+  await page.locator('#new-tab').click();
   await writeFirst(page, '另一张');
   await page.keyboard.press('Control+PageUp');
   await page.evaluate(() => editing.controller.setSelection(1, 3, 'backward'));

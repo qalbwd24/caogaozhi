@@ -12,8 +12,6 @@ let cam = {x:0,y:0,z:1}, gesture = null, pinch = null, preview = null, space = f
 let workspace, loading = true, drawFrame = 0, wheelFrame = 0, saveError = '', renaming = false;
 let panelAnchor = null, panelReturn = null, toolPage = '', toolTarget = null, toolEditorSelection = null;
 let hover = null, hoverTimer = 0, movable = null, inkHintTimer = 0;
-const panKeys = new Set();
-let keyPanFrame = 0, keyPanAt = null;
 const settingDefaults = {hoverDelay:440,inkHint:true,lineStyle:'solid'};
 let touchpadProbe = null, touchpadProbeTimer = 0;
 let preferences = {...settingDefaults};
@@ -418,7 +416,7 @@ function rememberFocus() {
   focusMemory.set(workspace.state.activeId,{selected,edgeId,editId:editing?.id || null,selection:editing?.controller.getSelection() || null});
 }
 function loadDocument(restoreFocus=true) {
-  loading = true; stopKeyPan(); detachEditor(); clearHover(); clearGestureCursor(); applyWheelPan();
+  loading = true; detachEditor(); clearHover(); clearGestureCursor(); applyWheelPan();
   const current = workspace.active(); model = normalize(current.model); cam = {...current.cam}; ink = current.ink;
   selected = null; edgeId = null; source = null; gesture = null; preview = null; pinch = null; space = false;
   const memory = focusMemory.get(current.id);
@@ -477,7 +475,7 @@ function closePanel(restoreFocus=false) {
   }
 }
 function showPanel(type,title,anchor=null,returnTo=document.activeElement) {
-  stopKeyPan(); panel.replaceChildren(); panelType = type; panelAnchor = anchor;
+  panel.replaceChildren(); panelType = type; panelAnchor = anchor;
   panelReturn = returnTo && returnTo !== document.body && !panel.contains(returnTo) ? returnTo : paper;
   panel.toggleAttribute('data-anchored',!!anchor); panel.hidden = false;
   panel.style.removeProperty('--menu-x'); panel.style.removeProperty('--menu-y'); panel.scrollTop = 0;
@@ -583,9 +581,9 @@ function example() {
 }
 function openFile(anchor=null,returnTo=document.activeElement) {
   finishEdit(); showPanel('file','草稿与操作',anchor,returnTo);
-  pbutton('新建草稿',() => addTab(),'Ctrl+Alt+N'); pbutton('重命名',() => renameTab(),'F2');
+  pbutton('新建草稿',() => addTab(),window.paperDesktop ? 'Ctrl+T' : ''); pbutton('重命名',() => renameTab(),'F2');
   pbutton('关闭当前标签',() => closeTab(),window.paperDesktop ? 'Ctrl+W' : '');
-  pbutton('恢复最近关闭',() => reopenTab(),'Ctrl+Alt+T',!workspace.state.closedIds.length);
+  pbutton('恢复最近关闭',() => reopenTab(),window.paperDesktop ? 'Ctrl+Shift+T' : '',!workspace.state.closedIds.length);
   if (workspace.state.closedIds.length) pbutton('查看已关闭草稿',openClosed);
   divider(); pbutton('立即保存',() => { flush(); closePanel(); },'Ctrl+S');
   pbutton('导出当前草稿',exportJson,'Ctrl+Shift+E'); pbutton('导入为新标签',() => $('upload').click(),'Ctrl+O');
@@ -639,9 +637,9 @@ function showTools(page,focusGroup) {
     divider();
     for (const [mode,label] of Object.entries(arrows)) pbutton(label,() => {closePanel(true);setEdgeAttr('arrow',mode);},current?.arrow===mode ? '当前' : '',!current);
   } else if (page === 'draft') {
-    pbutton('新建草稿',() => addTab(),'Ctrl+Alt+N'); pbutton('重命名',() => renameTab(),'F2');
+    pbutton('新建草稿',() => addTab(),window.paperDesktop ? 'Ctrl+T' : ''); pbutton('重命名',() => renameTab(),'F2');
     pbutton('关闭当前标签',() => closeTab(),'Ctrl+W');
-    pbutton('恢复最近关闭',() => reopenTab(),'Ctrl+Alt+T',!workspace.state.closedIds.length);
+    pbutton('恢复最近关闭',() => reopenTab(),window.paperDesktop ? 'Ctrl+Shift+T' : '',!workspace.state.closedIds.length);
     if (workspace.state.closedIds.length) branch('closed','查看已关闭草稿');
   } else if (page === 'edit') {
     const history = historyFor();
@@ -721,21 +719,6 @@ $('upload').onchange = async () => {
   catch (error) { showPanel('error','无法导入'); const text = document.createElement('p'); text.textContent = '请选用有效的草稿 JSON。'+error.message; panel.append(text); }
 };
 
-function stopKeyPan() {
-  const active = keyPanFrame || panKeys.size;
-  panKeys.clear(); if (keyPanFrame) cancelAnimationFrame(keyPanFrame);
-  keyPanFrame = 0; keyPanAt = null;
-  if (active) camera();
-}
-function stepKeyPan(time) {
-  keyPanFrame = 0;
-  if (!panKeys.size) return;
-  const has = key => Number(panKeys.has(key));
-  const dx = has('ArrowRight') - has('ArrowLeft'), dy = has('ArrowDown') - has('ArrowUp');
-  const dt = keyPanAt === null ? 17 : Math.min(33,time-keyPanAt); keyPanAt = time;
-  if (dx || dy) { cam.x += dx*dt*.52; cam.y += dy*dt*.52; camera(false); }
-  keyPanFrame = requestAnimationFrame(stepKeyPan);
-}
 function dialogOpen() { return !!document.querySelector('dialog[open]'); }
 function freshIdea() {
   const p = center(); newNote((p.x-cam.x)/cam.z,(p.y-cam.y)/cam.z,{place:true});
@@ -757,18 +740,17 @@ function connectTarget(id) {
   if (result) { selected = null; edgeId = result.id; changed(before); render(); }
 }
 document.addEventListener('keydown',e => {
+  if (e.altKey || e.getModifierState?.('AltGraph')) return;
   const key = e.key || '', k = key.toLowerCase(), cmd = e.ctrlKey || e.metaKey;
   const field = e.target.closest?.('input,select,dialog');
   if ((key === 'F17' || e.code === 'F17' || e.keyCode === 128 || key === 'F18' || e.code === 'F18' || e.keyCode === 129) && !field) {
     e.preventDefault(); if (!e.repeat) stepPaperShortcut(key === 'F17' || e.code === 'F17' || e.keyCode === 128 ? 'F17' : 'F18'); return;
   }
-  const directInk = e.altKey && !cmd && !e.shiftKey && /^Digit[1-4]$/.test(e.code) ? colors[Number(e.code.at(-1))-1] : null;
-  if (directInk && !field) { e.preventDefault(); if (!e.repeat) setInk(directInk); return; }
   if (e.isComposing || e.keyCode === 229 || editing?.controller?.isComposing(e)) return;
-  if (cmd && k === 's' && !e.shiftKey && !e.altKey) { e.preventDefault(); flush(); return; }
+  if (cmd && k === 's' && !e.shiftKey) { e.preventDefault(); flush(); return; }
   const inPanel = !panel.hidden && panel.contains(e.target);
   if (key === 'F19' || e.code === 'F19' || e.keyCode === 130) {
-    if (!cmd && !e.altKey) { e.preventDefault(); if (!e.repeat) toggleTools(); }
+    if (!cmd) { e.preventDefault(); if (!e.repeat) toggleTools(); }
     return;
   }
   if ((key === 'ContextMenu' || (key === 'F10' && e.shiftKey)) && !dialogOpen() && (!field || inPanel)) {
@@ -778,11 +760,11 @@ document.addEventListener('keydown',e => {
   }
   if (inPanel) {
     if (key === 'Escape') { e.preventDefault(); closePanel(true); return; }
-    if (toolPage && !cmd && !e.altKey) {
+    if (toolPage && !cmd) {
       if (key === 'ArrowRight' && e.target.dataset.menuPage) { e.preventDefault(); e.target.click(); return; }
       if (key === 'ArrowLeft' && !e.target.matches('input') && backTools()) { e.preventDefault(); return; }
     }
-    if (!cmd && !e.altKey && (key === 'ArrowDown' || key === 'ArrowUp')) {
+    if (!cmd && (key === 'ArrowDown' || key === 'ArrowUp')) {
       const items = menuItems();
       if (!items.length) return;
       e.preventDefault();
@@ -800,10 +782,10 @@ document.addEventListener('keydown',e => {
     return; // Keep Space and Tab native.
   }
   if (field) return;
-  if (cmd && k === 'z' && !e.altKey) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
-  if (cmd && k === 'y' && !e.altKey) { e.preventDefault(); redo(); return; }
-  if (cmd && ((e.altKey && k === 'n') || (k === 't' && !e.altKey && !e.shiftKey && window.paperDesktop))) { e.preventDefault(); addTab(); return; }
-  if (cmd && ((e.altKey && k === 't') || (e.shiftKey && k === 't' && window.paperDesktop))) { e.preventDefault(); reopenTab(); return; }
+  if (cmd && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (cmd && k === 'y') { e.preventDefault(); redo(); return; }
+  if (cmd && k === 't' && !e.shiftKey && window.paperDesktop) { e.preventDefault(); addTab(); return; }
+  if (cmd && k === 't' && e.shiftKey && window.paperDesktop) { e.preventDefault(); reopenTab(); return; }
   if (cmd && k === 'w' && window.paperDesktop) { e.preventDefault(); closeTab(); return; }
   if (cmd && (key === 'PageUp' || key === 'PageDown')) { e.preventDefault(); nextTab(key === 'PageUp' ? -1 : 1); return; }
   if (key === 'F2') { e.preventDefault(); renameTab(); return; }
@@ -813,7 +795,7 @@ document.addEventListener('keydown',e => {
   if (cmd && k === 'p') { e.preventDefault(); finishEdit(); closePanel(); window.print(); return; }
   if (cmd && key === 'Enter') { e.preventDefault(); freshIdea(); return; }
   if (cmd && ['+','=','-','0'].includes(key)) { e.preventDefault(); if (key === '0') fit(); else zoom(cam.z*(key === '-' ? 1/1.15 : 1.15),center()); return; }
-  if (e.target.closest?.('#tabs') && ['ArrowLeft','ArrowRight'].includes(key) && !e.altKey) {
+  if (e.target.closest?.('#tabs') && ['ArrowLeft','ArrowRight'].includes(key)) {
     e.preventDefault(); nextTab(key === 'ArrowLeft' ? -1 : 1); $('tabs').querySelector('[aria-selected="true"]')?.focus(); return;
   }
   if (key === 'Escape') {
@@ -822,18 +804,6 @@ document.addEventListener('keydown',e => {
     if (!id) { selected = null; edgeId = null; }
     paper.focus({preventScroll:true}); render(); return;
   }
-  if (e.altKey && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(key)) {
-    e.preventDefault(); const dx = key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : 0, dy = key === 'ArrowUp' ? -1 : key === 'ArrowDown' ? 1 : 0;
-    const n = node(selected), step = e.shiftKey ? 40 : 10;
-    if (n) { const before = capture(); applyCohort(moveCohort(n),dx*step,dy*step); changed(before,'move:'+(n.parallelId || n.id)); render(); }
-    else {
-      if (!panKeys.has(key)) {
-        panKeys.add(key); cam.x += dx*6; cam.y += dy*6; camera(false);
-        if (!keyPanFrame) keyPanFrame = requestAnimationFrame(stepKeyPan);
-      }
-    }
-    return;
-  }
   if (e.target.closest?.('button') || e.target.closest?.('#panel')) return;
   if (source && !editing && (key === 'Enter' || key === 'Tab')) {
     e.preventDefault();
@@ -841,7 +811,7 @@ document.addEventListener('keydown',e => {
     else { const index = model.nodes.findIndex(n => n.id === selected); selected = model.nodes[(index+1)%model.nodes.length]?.id; render(); }
     return;
   }
-  if ((editing || selected) && !cmd && !e.altKey) {
+  if ((editing || selected) && !cmd) {
     if (key === 'Tab' && !e.shiftKey) { e.preventDefault(); extend('child'); return; }
     if (key === 'Tab' && e.shiftKey) {
       const parent = node(node(editing?.id || selected)?.parentId); e.preventDefault();
@@ -851,7 +821,7 @@ document.addEventListener('keydown',e => {
     if (key === 'Enter' && e.shiftKey && editing) { e.preventDefault(); editing.controller.insertText('\n'); return; }
   }
   if (editing) return;
-  if (key === ' ' && !cmd && !e.altKey) { e.preventDefault(); space = true; sync(); return; }
+  if (key === ' ' && !cmd) { e.preventDefault(); space = true; sync(); return; }
   if ((key === 'Delete' || key === 'Backspace') && (selected || edgeId)) { e.preventDefault(); removeSelection(); return; }
   if (key === 'Enter' && edgeId) { e.preventDefault(); openProps(keyboardAnchor()); return; }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(key) && !cmd) { e.preventDefault(); navigateNodes(key); return; }
@@ -860,7 +830,6 @@ document.addEventListener('keydown',e => {
 document.addEventListener('paper-history',e => { e.preventDefault(); e.detail === 'redo' ? redo() : undo(); });
 document.addEventListener('keyup',e => {
   if (e.key === ' ') { space = false; sync(); }
-  if (e.key === 'Alt' || (panKeys.delete(e.key) && !panKeys.size)) stopKeyPan();
 });
 // The native bridge transports legacy -1/+1 values for F17/F18.
 window.paperDesktop?.onColorStep?.(direction => stepPaperShortcut(direction === -1 ? 'F17' : 'F18'));
@@ -1098,7 +1067,7 @@ paper.addEventListener('contextmenu',e => {
 document.addEventListener('pointerdown',e => {
   if (!panel.hidden && !e.target.closest('#panel,#file,#inspect-more,#save-error')) closePanel();
 });
-window.addEventListener('blur',() => { stopKeyPan(); space = false; cancelMoveIfActive(); gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
+window.addEventListener('blur',() => { space = false; cancelMoveIfActive(); gesture = null; pinch = null; points.clear(); preview = null; clearHover(); clearGestureCursor(); sync(); flush(); });
 window.addEventListener('pagehide',flush);
 window.addEventListener('beforeunload',flush);
 document.addEventListener('visibilitychange',() => { if (document.hidden) flush(); });

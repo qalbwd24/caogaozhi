@@ -195,7 +195,7 @@ test('independent tabs can be named, closed, reopened and restored after reload'
   await page.keyboard.press('F2');
   await page.locator('.tab input').fill('我的随想');
   await page.locator('.tab input').press('Enter');
-  await page.keyboard.press('Control+Alt+n');
+  await page.locator('#new-tab').click();
   await writeFirst(page, '第二张的内容');
   await page.keyboard.press('F2');
   await page.locator('.tab input').fill('待研究');
@@ -206,7 +206,9 @@ test('independent tabs can be named, closed, reopened and restored after reload'
   assert.equal((await app(page)).model.nodes[0].text, '第二张的内容');
   await page.locator('.tab.active .tab-close').click();
   assert.equal(await page.locator('#tabs [role="tab"]').count(), 1);
-  await page.keyboard.press('Control+Alt+t');
+  await functionKey(page, 'F19');
+  await page.getByRole('button',{name:'草稿与标签，进入子菜单'}).click();
+  await page.getByRole('button',{name:/恢复最近关闭/}).click();
   assert.equal(await page.locator('#tabs [role="tab"]').count(), 2);
   await page.keyboard.press('Control+s');
   await page.reload();
