@@ -61,6 +61,7 @@ header {
   cursor: grab; user-select: none; display: flex; align-items: flex-start;
 }
 .note .content { min-width: 0 }
+.note:not(.sticky):not(.editing) { width: max-content; min-width: 44px; max-width: 240px }
 .note.sticky { background: #f4edcf; border-color: #e3d8ac; border-radius: 10px }
 .note.selected { border-color: #cdd8e1; z-index: 2 }
 .note.editing { cursor: text; border-color: var(--blue); background: #fffefa; z-index: 2 }
@@ -153,6 +154,7 @@ dialog form { text-align: right; margin-top: 14px }
   .pips i { width: 6px; height: 6px }
   #status { display: none }
   .note { width: 208px }
+  .note:not(.sticky):not(.editing) { max-width: 208px }
   #controls,#dock,#panel { right: 10px }
   #tools,#controls button,#dock button { min-height: 38px }
 }
