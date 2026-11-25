@@ -2,8 +2,7 @@
 #define _WIN32_WINNT 0x0A00
 #include <windows.h>
 #include <commctrl.h>
-#define COBJMACROS
-#include <msctf.h>
+#include <imm.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -172,62 +171,63 @@ static Value poll(Env e,Info i) {
     }
     used=0;return out;
 }
-// Prefer Chinese conversion only on our own foreground UI thread. Never
-// switch the installed profile, use a global TSF compartment, or inject keys.
-static BOOL setConversion(ITfCompartmentMgr *mgr,const GUID *guid,TfClientId id,LONG bits) {
-    ITfCompartment *slot=NULL;
-    if(FAILED(ITfCompartmentMgr_GetCompartment(mgr,guid,&slot)) || !slot)return FALSE;
-    VARIANT current={0};
-    HRESULT hr=ITfCompartment_GetValue(slot,&current);
-    BOOL ok=FALSE;
-    // An empty thread-specific compartment is normal before the IME sees
-    // its first text field. Initialize only that documented integer slot.
-    if((hr==S_OK||hr==S_FALSE) && V_VT(&current)==VT_EMPTY) {
-        V_VT(&current)=VT_I4; V_I4(&current)=bits;
-        ok=SUCCEEDED(ITfCompartment_SetValue(slot,id,&current));
-    } else if(hr==S_OK && V_VT(&current)==VT_I4) {
-        if((V_I4(&current)&bits)==bits) ok=TRUE;
-        else {
-            V_I4(&current)|=bits;
-            ok=SUCCEEDED(ITfCompartment_SetValue(slot,id,&current));
-        }
-    }
-    VariantClear(&current);
-    ITfCompartment_Release(slot);
-    return ok;
+// Native status codes shared with desktop/main.cjs. IME messages only go to
+// the default IME window for our actual focused window, never another layout.
+enum { IME_DEFERRED, IME_UNAVAILABLE, IME_ALREADY, IME_READBACK, IME_UNCONFIRMED };
+// IMM compatibility commands; some toolchains do not expose these four in imm.h.
+enum { IMC_GETCONVERSIONMODE=1, IMC_SETCONVERSIONMODE=2, IMC_GETOPENSTATUS=5, IMC_SETOPENSTATUS=6 };
+static HWND ownedFocus(HWND owner) {
+    if(!owner || owner!=GetForegroundWindow() ||
+       GetWindowThreadProcessId(owner,NULL)!=GetCurrentThreadId())return NULL;
+    GUITHREADINFO info={.cbSize=sizeof(info)};
+    if(!GetGUIThreadInfo(GetCurrentThreadId(),&info) || !info.hwndFocus ||
+       (info.hwndFocus!=owner && !IsChild(owner,info.hwndFocus)))return NULL;
+    return info.hwndFocus;
+}
+static BOOL imeControl(HWND ime,WPARAM command,LPARAM value,DWORD_PTR *response) {
+    return SendMessageTimeoutW(ime,WM_IME_CONTROL,command,value,
+                               SMTO_ABORTIFHUNG|SMTO_ERRORONEXIT,60,response)!=0;
+}
+static BOOL sameFocus(HWND owner,HWND focus,DWORD thread,HKL layout) {
+    return ownedFocus(owner)==focus && GetKeyboardLayout(thread)==layout;
+}
+static unsigned applyFocusedChinese(HWND owner) {
+    HWND focus=ownedFocus(owner);
+    if(!focus)return IME_DEFERRED;
+    DWORD thread=GetWindowThreadProcessId(focus,NULL);
+    HKL layout=GetKeyboardLayout(thread);
+    if(!thread || !layout)return IME_DEFERRED;
+    if(PRIMARYLANGID(LOWORD((UINT_PTR)layout))!=LANG_CHINESE)return IME_UNAVAILABLE;
+    HWND ime=ImmGetDefaultIMEWnd(focus);
+    if(!ime || GetWindowThreadProcessId(ime,NULL)!=thread)return IME_DEFERRED;
+    DWORD_PTR open=0,mode=0,ignored=0;
+    if(!imeControl(ime,IMC_GETOPENSTATUS,0,&open) ||
+       !imeControl(ime,IMC_GETCONVERSIONMODE,0,&mode) ||
+       !sameFocus(owner,focus,thread,layout))return IME_DEFERRED;
+    if(open && (mode&IME_CMODE_NATIVE) && !(mode&IME_CMODE_NOCONVERSION))return IME_ALREADY;
+
+    // A timed-out write may still be delivered. Never automatically make a
+    // second write attempt after this point, even if readback is inconclusive.
+    imeControl(ime,IMC_SETOPENSTATUS,1,&ignored);
+    if(!sameFocus(owner,focus,thread,layout))return IME_UNCONFIRMED;
+    imeControl(ime,IMC_SETCONVERSIONMODE,(LPARAM)((mode|IME_CMODE_NATIVE)&~(DWORD_PTR)IME_CMODE_NOCONVERSION),&ignored);
+    if(!sameFocus(owner,focus,thread,layout) ||
+       !imeControl(ime,IMC_GETOPENSTATUS,0,&open) ||
+       !imeControl(ime,IMC_GETCONVERSIONMODE,0,&mode) ||
+       !sameFocus(owner,focus,thread,layout))return IME_UNCONFIRMED;
+    return open && (mode&IME_CMODE_NATIVE) && !(mode&IME_CMODE_NOCONVERSION) ? IME_READBACK : IME_UNCONFIRMED;
 }
 static Value preferChinese(Env e,Info i) {
-    static const GUID iid={0x7dcf57ac,0x18ad,0x438b,{0x82,0x4d,0x97,0x9b,0xff,0xb7,0x4b,0x7c}};
-    static const GUID open={0x58273aad,0x01bb,0x4164,{0x95,0xc6,0x75,0x5b,0xa0,0xb5,0x16,0x2d}};
-    static const GUID conversion={0xccf05dd8,0x4a87,0x11d7,{0xa6,0xe2,0x00,0x06,0x5b,0x84,0x43,0x5c}};
-    typedef HRESULT (WINAPI *GetManagerFn)(ITfThreadMgr**);
     Value arg,out=NULL;
     size_t n=1,len=0;
     void *buf=NULL;
-    BOOL ok=FALSE;
+    unsigned result=IME_DEFERRED;
     if(!napi_get_cb_info(e,i,&n,&arg,NULL,NULL) && n==1 &&
        !napi_get_buffer_info(e,arg,&buf,&len) && len==sizeof(HWND)){
-        HWND h;memcpy(&h,buf,sizeof h);
-        if(h && h==GetForegroundWindow() && GetWindowThreadProcessId(h,NULL)==GetCurrentThreadId() &&
-           PRIMARYLANGID(LOWORD((UINT_PTR)GetKeyboardLayout(0)))==LANG_CHINESE){
-            HMODULE tsf=GetModuleHandleW(L"msctf.dll");
-            GetManagerFn get=tsf?(GetManagerFn)GetProcAddress(tsf,"TF_GetThreadMgr"):NULL;
-            ITfThreadMgr *manager=NULL;
-            if(get && SUCCEEDED(get(&manager)) && manager){
-                ITfCompartmentMgr *local=NULL;
-                TfClientId id=0;
-                if(SUCCEEDED(ITfThreadMgr_Activate(manager,&id))){
-                    if(SUCCEEDED(ITfThreadMgr_QueryInterface(manager,&iid,(void**)&local)) && local){
-                        ok=setConversion(local,&open,id,1) && setConversion(local,&conversion,id,1);
-                        ITfCompartmentMgr_Release(local);
-                    }
-                    ITfThreadMgr_Deactivate(manager);
-                }
-                ITfThreadMgr_Release(manager);
-            }
-        }
+        HWND owner;memcpy(&owner,buf,sizeof owner);
+        result=applyFocusedChinese(owner);
     }
-    napi_get_boolean(e,ok!=FALSE,&out); return out;
+    napi_create_double(e,result,&out); return out;
 }
 
 static Value ctrlHeld(Env e,Info i) {

@@ -70,7 +70,7 @@ def build() -> None:
         module=stage/'touchpad-win32-x64.node'
         if args.zig:
             subprocess.run([str(args.zig.resolve()),'cc','-target','x86_64-windows-gnu','-O2','-shared',
-                            '-Werror','-Wall',str(ROOT/'desktop/native/touchpad.c'),'-lcomctl32','-luser32','-loleaut32',
+                            '-Werror','-Wall',str(ROOT/'desktop/native/touchpad.c'),'-lcomctl32','-luser32','-limm32',
                             '-o',str(module)],check=True)
         with zipfile.ZipFile(runtime) as rt,zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=3) as result:
             prefix='草稿纸/'

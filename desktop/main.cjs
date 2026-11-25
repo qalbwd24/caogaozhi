@@ -50,13 +50,21 @@ function noteShortcut(name,input,dispatched=false) {
   }
 }
 
+const imeResults=['deferred','unavailable','already','readback','unconfirmed'];
 function prepareChinese(win) {
-  if(process.platform!=='win32'||process.arch!=='x64'||!win||win.isDestroyed()||!win.isFocused())return false;
-  try { return require('./touchpad-win32-x64.node').preferChinese?.(win.getNativeWindowHandle())===true; }
-  catch { return false; }
+  if(!win || win.isDestroyed() || !win.isFocused())return 'deferred';
+  if(process.platform!=='win32'||process.arch!=='x64')return 'unavailable';
+  try {
+    return imeResults[require('./touchpad-win32-x64.node').preferChinese(win.getNativeWindowHandle())] || 'unavailable';
+  } catch { return 'unavailable'; }
+}
+function isPaperFrame(event,win) {
+  return win && !win.isDestroyed() && event.sender===win.webContents &&
+    event.senderFrame===win.webContents.mainFrame && event.senderFrame?.url.split('?')[0]===paperURL;
 }
 function openPaper(){
   if(mainWindow) return;
+  imeModeRequested=null;
   mainWindow=new BrowserWindow({
     title:'草稿纸', width:1120,height:770, minWidth:580,minHeight:475,
     show:false, backgroundColor:'#f7e3c5',icon:path.join(__dirname,'icon.png'),
@@ -123,19 +131,15 @@ else{
       return probe;
     });
 
-    ipcMain.handle('paper:ime-mode-requested',event=>{
+    ipcMain.handle('paper:ime-mode-requested',event=>
+      isPaperFrame(event,mainWindow) ? imeModeRequested : null);
+    ipcMain.handle('paper:initial-edit',event=>{
       const win=mainWindow;
-      if(!win || event.sender!==win.webContents || event.senderFrame!==win.webContents.mainFrame ||
-         event.senderFrame?.url.split('?')[0]!==paperURL)return null;
-      return imeModeRequested;
-    });
-    let initialEditorFocusSeen=false;
-    ipcMain.on('paper:initial-edit',event=>{
-      const win=mainWindow;
-      if(initialEditorFocusSeen || !win || !win.isFocused() || event.sender!==win.webContents ||
-         event.senderFrame!==win.webContents.mainFrame || event.senderFrame?.url.split('?')[0]!==paperURL)return;
-      initialEditorFocusSeen=true;
-      imeModeRequested=prepareChinese(win);
+      if(!isPaperFrame(event,win))return 'unavailable';
+      // A dropped/early request doesn't use the one opportunity. Once a real
+      // write was attempted, respect all manual mode changes on this window.
+      if(['already','readback','unconfirmed'].includes(imeModeRequested))return imeModeRequested;
+      return imeModeRequested=prepareChinese(win);
     });
 
     ipcMain.handle('paper:save-screenshot',(event)=>{

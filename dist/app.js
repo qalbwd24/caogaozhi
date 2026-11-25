@@ -268,9 +268,31 @@ function sync() {
   for (const b of $('palette').children) b.setAttribute('aria-pressed',String(b.dataset.ink === active));
   $('file').setAttribute('aria-expanded',String(panelType === 'file' && !panel.hidden));
 }
-function openEditor(n,selection,point) {
+let imeIntentSerial = 0, imeHandled = false;
+function requestEditorChinese(event) {
+  const api = window.paperDesktop, active = editing;
+  if (!event?.isTrusted || !api?.preferChineseAtFirstEdit || !active || imeHandled) return;
+  const serial = ++imeIntentSerial;
+  const stillEditing = () => serial === imeIntentSerial && editing === active &&
+    document.hasFocus() && active.host.contains(document.activeElement) && !active.controller.isComposing();
+  const attempt = async (remaining) => {
+    if (imeHandled || !stillEditing()) return;
+    try {
+      const result = await api.preferChineseAtFirstEdit();
+      if (['already','readback','unconfirmed'].includes(result)) imeHandled = true;
+      // Allow native focus to settle once. Never retry if typing started,
+      // the writing target changed, or any actual IME write was attempted.
+      if (remaining && result === 'deferred' && stillEditing()) requestAnimationFrame(() => void attempt(false));
+    } catch { /* Leave the user's IME alone if the bridge is unavailable. */ }
+  };
+  requestAnimationFrame(() => void attempt(true));
+}
+for (const kind of ['keydown','beforeinput','compositionstart','blur']) {
+  window.addEventListener(kind,e => { if (e.isTrusted) ++imeIntentSerial; },true);
+}
+function openEditor(n,selection,point,intent) {
   if (!n) return;
-  if (editing?.id === n.id) { editing.controller.focus(); return; }
+  if (editing?.id === n.id) { editing.controller.focus(); requestEditorChinese(intent); return; }
   finishEdit(); closePanel(); clearHover(); selected = n.id; edgeId = null; source = null;
   const host = document.createElement('div'); host.className = 'editor'; host.setAttribute('aria-label','草稿文字');
   editing = {id:n.id,host,controller:null};
@@ -289,7 +311,6 @@ function openEditor(n,selection,point) {
   });
   editing.controller = controller;
   controller.focus({end:true});
-  window.paperDesktop?.preferChineseAtFirstEdit?.();
   if (selection) controller.setSelection(selection.start,selection.end,selection.direction);
   else if (point) {
     const range = document.caretRangeFromPoint?.(point.x,point.y);
@@ -298,6 +319,7 @@ function openEditor(n,selection,point) {
   host.addEventListener('blur',() => {
     queueMicrotask(() => { if (editing?.host === host && !host.contains(document.activeElement) && !(toolPage && panelReturn === host && panel.contains(document.activeElement))) finishEdit(); });
   });
+  requestEditorChinese(intent);
   reveal(n); sync();
 }
 function finishEdit() {
@@ -318,17 +340,17 @@ function createEdge(a,b,arrow='none',kind) {
   if (a === b || model.edges.some(e => e.a === a && e.b === b)) return null;
   const e = {id:newId(),a,b,style:kind === 'child' ? 'solid' : preferences.lineStyle,arrow,color:ink,label:'',...(kind ? {kind} : {})}; model.edges.push(e); return e;
 }
-function newNote(x,y,{parent=null,child=false,arrow='none',order=null,parallelId=null,place=false,before:nullBefore=null}={}) {
+function newNote(x,y,{parent=null,child=false,arrow='none',order=null,parallelId=null,place=false,before:nullBefore=null,intent}={}) {
   finishEdit(); const before = nullBefore || capture();
   if (place) ({x,y} = freeSpot(x,y));
   const n = {id:newId(),x:Math.round(x),y:Math.round(y),text:'',color:ink,...(order ? {order} : {})};
   if (child && node(parent)) n.parentId = parent;
   if (parallelId) n.parallelId = parallelId;
   model.nodes.push(n); if (parent && node(parent)) createEdge(parent,n.id,arrow,child ? 'child' : undefined);
-  selected = n.id; edgeId = null; openEditor(n);
+  selected = n.id; edgeId = null; openEditor(n,null,null,intent);
   changed(before,'typing:'+n.id);
 }
-function extend(kind) {
+function extend(kind,intent) {
   const n = node(editing?.id || selected); if (!n || !n.text.trim()) { if (kind === 'sibling') finishEdit(); return; }
   const s = size(n), before = capture();
   let order = n.order ? n.order+1 : null;
@@ -342,13 +364,13 @@ function extend(kind) {
       editing?.controller.setValue(n,{start:n.text.length,end:n.text.length});
     }
   }
-  if (kind === 'child') newNote(n.x+s.w+78,n.y,{parent:n.id,child:true,arrow:'single',place:true,before});
+  if (kind === 'child') newNote(n.x+s.w+78,n.y,{parent:n.id,child:true,arrow:'single',place:true,before,intent});
   else {
     n.parallelId ||= newId();
     const members = model.nodes.filter(item => item.parallelId === n.parallelId).map(size);
     const viewport = {x:-cam.x/cam.z,y:-cam.y/cam.z,w:paper.clientWidth/cam.z,h:paper.clientHeight/cam.z};
     const place = PaperParallelPlacement.siblingSpot(s,members,model.nodes.map(size),{width:Math.max(150,Math.min(220,s.w)),height:34,viewport});
-    newNote(place.x,place.y,{parent:n.parentId || null,child:!!n.parentId,arrow:n.parentId ? 'single' : 'none',order,parallelId:n.parallelId,before});
+    newNote(place.x,place.y,{parent:n.parentId || null,child:!!n.parentId,arrow:n.parentId ? 'single' : 'none',order,parallelId:n.parallelId,before,intent});
   }
 }
 function selectNode(id) {
@@ -608,7 +630,7 @@ function openProps(anchor=null,returnTo=document.activeElement,submenu=false) {
     pbutton('反转起点与终点',() => { const before = capture(); [e.a,e.b] = [e.b,e.a]; changed(before); scheduleDraw(); });
     pbutton('删除连线',removeSelection,'Delete',false,'trash');
   } else {
-    pbutton('继续编辑',() => { closePanel(); openEditor(n); });
+    pbutton('继续编辑',e => { closePanel(); openEditor(n,null,null,e); });
     const sticky = pbutton(n.sticky ? '去掉便签背景' : '添加便签背景',() => {
       const before = capture();
       if (n.sticky) delete n.sticky; else n.sticky = true;
@@ -753,7 +775,7 @@ function showTools(page,owner=null) {
     pbutton('撤销',() => {closePanel();undo();},'Ctrl+Z',!history.past.length);
     pbutton('重做',() => {closePanel();redo();},'Ctrl+Y',!history.future.length);
     if (node(selected) || edge(edgeId)) branch('object','当前对象');
-    pbutton('新建文字块',() => {closePanel();freshIdea();},'Ctrl+Enter');
+    pbutton('新建文字块',e => {closePanel();freshIdea(e);},'Ctrl+Enter');
   } else if (page === 'transfer') {
     pbutton('立即保存',() => {flush();closePanel(true);},'Ctrl+S');
     pbutton('导出当前草稿',exportJson,'Ctrl+Shift+E');
@@ -776,8 +798,11 @@ function showTools(page,owner=null) {
     if (window.paperDesktop?.queryImeModeRequest) pbutton('中文模式检查',async () => {
       closePanel(true);
       try {
-        const accepted=await window.paperDesktop.queryImeModeRequest();
-        touchpadMessage(accepted === null ? '还没进入文字块。' : accepted ? '系统接受了中文模式请求；请以实际输入为准。' : '当前输入法没有接受中文模式请求。');
+        const result=await window.paperDesktop.queryImeModeRequest();
+        const messages={already:'首次检查时，当前输入法已在中文模式。',readback:'首次请求后，系统读回中文模式；请以实际出字为准。',
+          unconfirmed:'已请求中文，未能确认输入法切换。',unavailable:'当前输入法没有可用的中文模式入口，未切换输入法。',
+          deferred:'还没找到前台编辑焦点；可以再点一次文字块。'};
+        touchpadMessage(messages[result] || '还没尝试开启中文模式。');
       } catch { touchpadMessage('未能查询中文模式请求。'); }
     });
     const delays = [300,440,650];
@@ -835,8 +860,8 @@ $('upload').onchange = async () => {
 };
 
 function dialogOpen() { return !!document.querySelector('dialog[open]'); }
-function freshIdea() {
-  const p = center(); newNote((p.x-cam.x)/cam.z,(p.y-cam.y)/cam.z,{place:true});
+function freshIdea(intent) {
+  const p = center(); newNote((p.x-cam.x)/cam.z,(p.y-cam.y)/cam.z,{place:true,intent});
 }
 function navigateNodes(direction) {
   if (!model.nodes.length) return;
@@ -922,7 +947,7 @@ document.addEventListener('keydown',e => {
   if (cmd && k === 'e' && e.shiftKey) { e.preventDefault(); exportJson(); return; }
   if (cmd && k === 'o') { e.preventDefault(); $('upload').click(); return; }
   if (cmd && k === 'p') { e.preventDefault(); finishEdit(); closePanel(); window.print(); return; }
-  if (cmd && key === 'Enter') { e.preventDefault(); freshIdea(); return; }
+  if (cmd && key === 'Enter') { e.preventDefault(); if (!e.repeat) freshIdea(e); return; }
   if (cmd && ['+','=','-','0'].includes(key)) { e.preventDefault(); if (key === '0') fit(); else zoom(cam.z*(key === '-' ? 1/1.15 : 1.15),center()); return; }
   if (e.target.closest?.('#tabs') && ['ArrowLeft','ArrowRight'].includes(key)) {
     e.preventDefault(); nextTab(key === 'ArrowLeft' ? -1 : 1); $('tabs').querySelector('[aria-selected="true"]')?.focus(); return;
@@ -935,17 +960,17 @@ document.addEventListener('keydown',e => {
     return;
   }
   if ((editing || selected) && !cmd) {
-    if (key === 'Tab' && !e.shiftKey) { e.preventDefault(); extend('child'); return; }
+    if (key === 'Tab' && !e.shiftKey) { e.preventDefault(); if (!e.repeat) extend('child',e); return; }
     if (key === 'Tab' && e.shiftKey) {
       const parent = node(node(editing?.id || selected)?.parentId); e.preventDefault();
-      if (parent) { finishEdit(); selectNode(parent.id); openEditor(parent); } return;
+      if (parent) { finishEdit(); selectNode(parent.id); openEditor(parent,null,null,e); } return;
     }
     if (key === 'Enter' && !e.shiftKey) {
       e.preventDefault(); if (e.repeat) return;
       if (editing) {
         const id = editing.id; finishEdit();
         (dom.get(id) || paper).focus({preventScroll:true});
-      } else extend('sibling');
+      } else extend('sibling',e);
       return;
     }
     if (key === 'Enter' && e.shiftKey && editing) { e.preventDefault(); editing.controller.insertText('\n'); return; }
@@ -955,7 +980,7 @@ document.addEventListener('keydown',e => {
   if ((key === 'Delete' || key === 'Backspace') && (selected || edgeId)) { e.preventDefault(); removeSelection(); return; }
   if (key === 'Enter' && edgeId) { e.preventDefault(); openProps(keyboardAnchor()); return; }
   if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(key) && !cmd) { e.preventDefault(); navigateNodes(key); return; }
-  if (key === 'Enter' && !selected && !edgeId) { e.preventDefault(); freshIdea(); }
+  if (key === 'Enter' && !selected && !edgeId) { e.preventDefault(); if (!e.repeat) freshIdea(e); }
 });
 document.addEventListener('paper-history',e => { e.preventDefault(); e.detail === 'redo' ? redo() : undo(); });
 document.addEventListener('keyup',e => {
@@ -994,11 +1019,13 @@ function touchpadMessage(value) {
   feedback.querySelector('span').textContent = value; feedback.hidden = false;
 }
 async function runShortcutProbe() {
-  touchpadMessage('接下来 8 秒：在草稿纸里把有问题的 Caps 组合连续按两次。只统计 F17 和 F18。');
+  touchpadMessage('接下来 8 秒：在草稿纸里把有问题的 Caps 组合完整按、松两次。只统计 F17 和 F18。');
   try {
     const result = await window.paperDesktop.probeShortcuts();
     if (!result) return;
-    const summary = Object.entries(result).map(([k,n]) => k+' 收到'+n.down+'/转发'+n.used+'/执行'+n.applied+(n.noEdge?' (未选线'+n.noEdge+')':n.blocked?' (暂不可用'+n.blocked+')':n.repeat?' (重复'+n.repeat+')':''));
+    const summary = Object.entries(result).map(([k,n]) =>
+      k+' 按'+n.down+'/松'+n.up+'/长按重复'+n.repeat+'/转发'+n.used+'/执行'+n.applied+
+      (n.noEdge?' (未选线'+n.noEdge+')':'')+(n.blocked?' (暂不可用'+n.blocked+')':''));
     touchpadMessage(summary.join(' · '));
   } catch { touchpadMessage('未能完成快捷键诊断。'); }
 }
@@ -1241,16 +1268,19 @@ paper.addEventListener('pointermove',e => {
   }
   if (takingPan) { if (!g.latest) paper.classList.add('grabbing'); schedulePointerDrag(g,e.clientX,e.clientY); }
 });
-function tapConnect(id,p) {
+function tapConnect(id,p,intent) {
   if (!source) return;
   if (source === id) { source = null; render(); return; }
   if (id) connectTarget(id);
-  else { const from = source; source = null; newNote(p.x,p.y,{parent:from}); }
+  else { const from = source; source = null; newNote(p.x,p.y,{parent:from,intent}); }
 }
 paper.addEventListener('pointerup',e => {
   points.delete(e.pointerId);
   if (pinch) { if (!points.size) pinch = null; return; }
-  if (gesture?.id !== e.pointerId) return;
+  if (gesture?.id !== e.pointerId) {
+    if (e.button === 0 && editing?.host.contains(e.target)) requestEditorChinese(e);
+    return;
+  }
   const g = gesture; gesture = null; stopPointerDrag(g); clearGestureCursor();
   if (paper.hasPointerCapture?.(e.pointerId)) paper.releasePointerCapture(e.pointerId);
   if (g.type === 'touchZoom') { stepScreenZoom(g,e); applyWheelPan(); return; }
@@ -1258,17 +1288,17 @@ paper.addEventListener('pointerup',e => {
     cam.x = g.cx + e.clientX-g.x; cam.y = g.cy + e.clientY-g.y; camera(); return;
   }
   const p = world(e.clientX,e.clientY);
-  if (g.type === 'blank' && !g.moved) { finishEdit(); closePanel(); newNote(p.x,p.y); }
+  if (g.type === 'blank' && !g.moved) { finishEdit(); closePanel(); newNote(p.x,p.y,{intent:e}); }
   if (g.type === 'move') {
     if (g.moved) {
       applyCohort(g.cohort,(e.clientX-g.x)/cam.z,(e.clientY-g.y)/cam.z);
       changed(g.before); selectNode(g.n.id); dom.get(g.n.id)?.focus({preventScroll:true});
     }
-    else { selectNode(g.n.id); openEditor(g.n,null,{x:e.clientX,y:e.clientY}); }
+    else { selectNode(g.n.id); openEditor(g.n,null,{x:e.clientX,y:e.clientY},e); }
   }
   if (g.type === 'edge' && !g.moved) { finishEdit(); selectEdge(g.lid); paper.focus({preventScroll:true}); }
-  if (g.type === 'connectTap' && !g.moved) { finishEdit(); tapConnect(g.nodeId,p); }
-  if (g.type === 'note' && !g.moved) { selectNode(g.from); openEditor(node(g.from),null,{x:e.clientX,y:e.clientY}); }
+  if (g.type === 'connectTap' && !g.moved) { finishEdit(); tapConnect(g.nodeId,p,e); }
+  if (g.type === 'note' && !g.moved) { selectNode(g.from); openEditor(node(g.from),null,{x:e.clientX,y:e.clientY},e); }
   if (g.type === 'note' && g.moved) {
     preview = null;
     if (g.moved) {
@@ -1276,7 +1306,7 @@ paper.addEventListener('pointerup',e => {
       const id = noteHit(e.clientX,e.clientY,target);
       const rect = paper.getBoundingClientRect();
       if (id && id !== g.from) { const before = capture(), link = createEdge(g.from,id); changed(before); if (link) selectEdge(link.id); }
-      else if (!id && e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) newNote(p.x,p.y,{parent:g.from});
+      else if (!id && e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) newNote(p.x,p.y,{parent:g.from,intent:e});
       scheduleDraw();
     }
   }

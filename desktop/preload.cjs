@@ -1,12 +1,7 @@
 'use strict';
 const {contextBridge,ipcRenderer}=require('electron');
-let requestedChinese=false;
 contextBridge.exposeInMainWorld('paperDesktop',Object.freeze({
-  preferChineseAtFirstEdit:()=>{
-    if(requestedChinese)return;
-    requestedChinese=true;
-    ipcRenderer.send('paper:initial-edit');
-  },
+  preferChineseAtFirstEdit:()=>ipcRenderer.invoke('paper:initial-edit'),
   saveScreenshot:()=>ipcRenderer.invoke('paper:save-screenshot'),
   saveTouchpadProbe:(summary)=>ipcRenderer.invoke('paper:save-touchpad-probe',summary),
   queryImeModeRequest:()=>ipcRenderer.invoke('paper:ime-mode-requested'),
