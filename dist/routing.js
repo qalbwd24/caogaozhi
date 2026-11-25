@@ -210,11 +210,25 @@ function draw() {
   if(preview) {
     const n=node(preview.id);
     if(n) {
-      const rect=size(n),from=routePort(rect,'r',0,7),dx=preview.x-from.p.x,dy=preview.y-from.p.y;
-      const distance=Math.max(1,Math.hypot(dx,dy)),pull=routeClamp(distance*.35,12,120);
-      const to={p:{x:preview.x,y:preview.y},normal:{x:-dx/distance,y:-dy/distance}};
-      const curve=routeCandidate(from,to,0,pull,0);
-      fragment.append(svgEl('path',{d:curve.path,class:'wire',stroke:inks[ink]?.[0]||'#7a624e','stroke-dasharray':'5 4','stroke-linecap':'round'}));
+      const rect=nodes.get(preview.id), target=nodes.get(preview.target);
+      let curve;
+      if(target) {
+        // Snap to the same curved router as an actual connection, never to a visible handle.
+        const others=blockers.filter(b=>b.id!==preview.id&&b.id!==preview.target);
+        curve=edgeGeometry(rect,target,others,wires,{a:preview.id,b:preview.target,arrow:'none'});
+      } else {
+        const end={x:preview.x,y:preview.y}, c=routeCenter(rect);
+        const dx=end.x-c.x,dy=end.y-c.y;
+        const side=Math.abs(dx)/Math.max(1,rect.w)>=Math.abs(dy)/Math.max(1,rect.h)
+          ? (dx<0?'l':'r') : (dy<0?'t':'b');
+        const from=routePort(rect,side,0,7), vx=end.x-from.p.x,vy=end.y-from.p.y;
+        const distance=Math.hypot(vx,vy), lead=vx*from.normal.x+vy*from.normal.y;
+        if(lead>1) {
+          const to={p:end,normal:{x:-vx/distance,y:-vy/distance}};
+          curve=routeCandidate(from,to,0,Math.min(120,distance*.35,lead*.65),0);
+        }
+      }
+      if(curve)fragment.append(svgEl('path',{d:curve.path,class:'wire wire-preview'+(target?' snapped':''),stroke:inks[ink]?.[0]||'#7a624e','stroke-linecap':'round'}));
     }
   }
   svg.replaceChildren(fragment);

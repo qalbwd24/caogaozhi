@@ -69,16 +69,17 @@ header {
 #fit { color: var(--muted); font-size: 12px; min-width: 48px; padding-inline: 4px; font-variant-numeric: tabular-nums; }
 #file, #inspect-more { font-size: 20px; line-height: 1; }
 #save-error { min-height: 24px; width: 24px; padding: 0; color: #ad3033; font-weight: bold; }
-#paper { position: absolute; inset: var(--head) 0 0; overflow: hidden; touch-action: none; cursor: text; outline: 0; z-index: 1; }
-/* The paper grid belongs to the viewport, not the zoomed board. */
+#paper { position: absolute; inset: var(--head) 0 0; overflow: hidden; touch-action: none; cursor: default; outline: 0; z-index: 1; }
+/* Tile spacing and phase follow the board; the dot's CSS-pixel radius stays fixed. */
 #paper {
   overscroll-behavior: none;
   background-image: radial-gradient(circle, rgba(123, 77, 44, .24) 0 1px, transparent 1.35px);
-  background-size: 20px 20px;
+  background-size: var(--paper-grid-step, 20px) var(--paper-grid-step, 20px);
+  background-position: var(--paper-grid-x, 0px) var(--paper-grid-y, 0px);
 }
 #paper.pan, #paper.pan .note { cursor: grab; }
 #paper[data-gesture="move"], #paper[data-gesture="move"] * { cursor: grabbing !important; }
-#paper[data-gesture="link"], #paper[data-gesture="link"] * { cursor: crosshair !important; }
+#paper[data-gesture="link"], #paper[data-gesture="link"] * { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4 20l2-6L17 3l4 4-11 11z' fill='%23fbedd8' stroke='%235d473a' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M14 6l4 4M6 14l4 4M4 20l3-1' fill='none' stroke='%235d473a' stroke-width='1.3'/%3E%3C/svg%3E") 4 20, crosshair !important; }
 #paper { scroll-axis-lock: none; }
 #paper.grabbing { cursor: grabbing; }
 #board { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
@@ -93,7 +94,7 @@ header {
 .note { position: absolute; width: max-content; max-width: 300px; min-width: 12px; min-height: 31px; padding: 2px 0;
   border: 0; outline: 0; border-radius: 0; background: transparent;
   display: flex; align-items: flex-start; gap: 0; font-size: 17px; line-height: 1.6;
-  white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; user-select: none;
+  white-space: pre-wrap; overflow-wrap: anywhere; cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4 20l2-6L17 3l4 4-11 11z' fill='%23fbedd8' stroke='%235d473a' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M14 6l4 4M6 14l4 4M4 20l3-1' fill='none' stroke='%235d473a' stroke-width='1.3'/%3E%3C/svg%3E") 4 20, crosshair; user-select: none;
 }
 .note .content { min-width: 0; max-width: 300px; }
 .note.selected:not(.editing)::before { content: ''; position: absolute; left: -5px; top: 4px; bottom: 4px; border-left: 2px solid #a4704c77; }
@@ -126,9 +127,6 @@ header {
 }
 .editor::selection, .editor *::selection { background: #a4764c38; }
 .note .number { flex: none; font-size: 11px; line-height: 27.2px; color: #846e56; opacity: .7; margin-right: 8px; }
-.port { display: none; position: absolute; right: -24px; top: max(3px, calc(50% - 10px)); width: 20px; height: 20px; min-height: 20px; padding: 0; border-radius: 50%; color: #9e7657; background: var(--paper); line-height: 19px; cursor: crosshair; font-size: 15px; }
-.note.selected:not(.editing) .port, .note:hover:not(.editing) .port { display: block; }
-.note .port:hover { background: #ebc99f; }
 #panel { position: absolute; z-index: 8; right: 12px; top: calc(var(--head) + 6px); width: min(286px, calc(100% - 24px)); max-height: calc(100dvh - var(--head) - 22px); overflow: auto; scrollbar-width: none;
   display: grid; gap: 1px; padding: 7px; border: 1px solid #9c714544; border-radius: 6px; background: #f9e5cd; box-shadow: 0 8px 24px #6039181c;
 }
@@ -170,7 +168,7 @@ dialog form { text-align: right; margin-top: 18px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 @media print {
   html, body, #surface { height: auto; position: static; overflow: visible; background: white; }
-  header, #panel, #ink-hint, #touchpad-feedback, dialog, .port, #surface::after, .sr-only { display: none !important; }
+  header, #panel, #ink-hint, #touchpad-feedback, dialog, #surface::after, .sr-only { display: none !important; }
   #paper { position: relative; background: white; overflow: visible; inset: auto; width: var(--print-w,100%); height: var(--print-h,auto); }
   #board { transform: var(--print-t,none) !important; }
   .note::before { display: none; }
@@ -180,3 +178,7 @@ dialog form { text-align: right; margin-top: 18px; }
   button:focus-visible, .tab.active { outline: 1px solid Highlight; }
   .swatch span { forced-color-adjust: none; }
 }
+
+.editor::highlight(paper-ime-ink) { color: var(--ime-ink); }
+.wire-preview { opacity: .47; pointer-events: none; }
+.wire-preview.snapped { opacity: .68; }

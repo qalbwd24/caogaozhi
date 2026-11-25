@@ -71,7 +71,7 @@
     let typingColor = validColor(options.typingColor, baseColor);
     let selection = { start: state.text.length, end: state.text.length, direction: 'forward' };
     let composing = false, compositionUntil = 0, destroyed = false;
-    let beforeSelection = null, nativeRange = null;
+    let beforeSelection = null, nativeRange = null, compositionSelection = null;
     const listeners = [];
     const graphemes = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
@@ -172,19 +172,6 @@
       return range.start === range.end ? typingColor : colorAt(range.start, false);
     }
 
-    function prepareNativeInk() {
-      // The browser owns IME pre-edit DOM. Set its native typing style while
-      // the caret is collapsed, before composition starts; stored runs remain
-      // the source of truth and are rebuilt after composition. No sentinel
-      // character is inserted into the document.
-      const current = window.getSelection();
-      if (composing || !current?.rangeCount || !current.isCollapsed || !host.contains(current.anchorNode)) return;
-      try {
-        document.execCommand('styleWithCSS', false, true);
-        document.execCommand('foreColor', false, inkValue(typingColor));
-      } catch { /* Committed text still receives the correct stored ink. */ }
-    }
-
     function notifySelection() {
       if (destroyed || composing) return;
       const current = window.getSelection();
@@ -232,22 +219,39 @@
       return forward ? (boundaries.find(point => point > offset) ?? offset) : (boundaries.filter(point => point < offset).pop() ?? 0);
     }
 
-    function acceptNative(kind) {
-      const text = plainText(host).slice(0, 10000);
-      const prior = beforeSelection || { ...selection };
-      const replacing = nativeRange || prior;
-      const nextSelection = getSelection();
-      beforeSelection = nativeRange = null;
-      if (text === state.text) return false;
+    function nativeDiff(text, replacing) {
       let start = replacing.start, oldEnd = replacing.end;
       let newEnd = start + text.length - (state.text.length - (oldEnd - start));
-      // The native target range disambiguates inserting repeated characters into
-      // differently colored runs. A text diff alone could move the new ink.
       if (newEnd < start || text.slice(0, start) !== state.text.slice(0, start) || text.slice(newEnd) !== state.text.slice(oldEnd)) {
         start = 0; oldEnd = state.text.length; newEnd = text.length;
         while (start < oldEnd && start < newEnd && state.text[start] === text[start]) start++;
         while (oldEnd > start && newEnd > start && state.text[oldEnd - 1] === text[newEnd - 1]) { oldEnd--; newEnd--; }
       }
+      return { start, oldEnd, newEnd };
+    }
+
+    function paintComposition() {
+      const highlights = window.CSS?.highlights;
+      if (!highlights || !window.Highlight) return;
+      highlights.delete('paper-ime-ink');
+      if (!composing || !compositionSelection) return;
+      const text = plainText(host).slice(0, 10000);
+      const { start, newEnd } = nativeDiff(text, compositionSelection);
+      if (newEnd <= start) return;
+      const range = document.createRange();
+      const a = textPoint(start), b = textPoint(newEnd);
+      range.setStart(a[0], a[1]); range.setEnd(b[0], b[1]);
+      highlights.set('paper-ime-ink', new window.Highlight(range));
+    }
+
+    function acceptNative(kind) {
+      const text = plainText(host).slice(0, 10000);
+      const prior = compositionSelection || beforeSelection || { ...selection };
+      const replacing = compositionSelection || nativeRange || prior;
+      const nextSelection = getSelection();
+      beforeSelection = nativeRange = null;
+      if (text === state.text) return false;
+      const { start, oldEnd, newEnd } = nativeDiff(text, replacing);
       state = {
         text,
         runs: mergeRuns([
@@ -264,7 +268,8 @@
     function setTypingColor(color) {
       typingColor = validColor(color, typingColor);
       caretColor();
-      prepareNativeInk();
+      host.style.setProperty('--ime-ink', inkValue(typingColor));
+      if (composing) paintComposition();
       onSelectionChange?.({ ...getSelection(), color: getColor() });
     }
 
@@ -341,11 +346,19 @@
         beforeSelection = nativeRange = null;
       }
     });
-    listen(host, 'input', event => acceptNative(composing || event.isComposing ? 'composition' : 'input'));
-    listen(host, 'compositionstart', () => { composing = true; beforeSelection = getSelection(); });
+    listen(host, 'input', event => {
+      if (composing) paintComposition();
+      else acceptNative(event.isComposing ? 'composition' : 'input');
+    });
+    listen(host, 'compositionstart', () => {
+      compositionSelection = getSelection(); composing = true;
+      host.style.setProperty('--ime-ink', inkValue(typingColor));
+    });
     listen(host, 'compositionend', () => {
       composing = false; compositionUntil = now() + 55;
+      paintComposition();
       acceptNative('composition');
+      compositionSelection = null;
       const range = getSelection();
       render(); setSelection(range.start, range.end, range.direction);
       onCompositionEnd?.(read(), { selection: range });
@@ -368,10 +381,10 @@
         host.focus({ preventScroll: true });
         if (end) setSelection(state.text.length);
         else setSelection(selection.start, selection.end, selection.direction);
-        if (!composing) prepareNativeInk();
       },
       destroy() {
         destroyed = true;
+        window.CSS?.highlights?.delete('paper-ime-ink');
         for (const remove of listeners) remove();
         host.removeAttribute('contenteditable');
       }

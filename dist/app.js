@@ -123,7 +123,16 @@ function redo() {
   restore(next);
 }
 
+function paperGridFor(camera) {
+  const step = 20 * camera.z;
+  const phase = v => ((v % step) + step) % step;
+  return {step, x: phase(camera.x), y: phase(camera.y)};
+}
 function camera(save = true) {
+  const g = paperGridFor(cam);
+  paper.style.setProperty('--paper-grid-step', g.step + 'px');
+  paper.style.setProperty('--paper-grid-x', g.x + 'px');
+  paper.style.setProperty('--paper-grid-y', g.y + 'px');
   board.style.transform = 'translate3d(' + cam.x + 'px,' + cam.y + 'px,0) scale(' + cam.z + ')';
   const fitLabel = Math.round(cam.z * 100) + '%', fitControl = $('fit');
   if (fitControl.textContent !== fitLabel) fitControl.textContent = fitLabel;
@@ -188,8 +197,7 @@ function makeNote(n) {
   const d = document.createElement('div'); d.className = 'note'; d.dataset.node = n.id; d.tabIndex = 0; d.setAttribute('role','group');
   const number = document.createElement('span'); number.className = 'number'; number.setAttribute('aria-hidden','true');
   const content = document.createElement('span'); content.className = 'content';
-  const port = document.createElement('button'); port.className = 'port'; port.type = 'button'; port.textContent = '+'; port.setAttribute('aria-label','从此处连线');
-  d.append(number,content,port); noteLayer.append(d); dom.set(n.id,d); return d;
+  d.append(number,content); noteLayer.append(d); dom.set(n.id,d); return d;
 }
 function drawText(el,n) {
   const fragments = PaperEditor.normalizedRuns(n.text,n.color,n.runs);
@@ -212,7 +220,7 @@ function sync() {
   if (!workspace) return;
   const h = historyFor(); $('undo').disabled = !h.past.length; $('redo').disabled = !h.future.length;
   paper.classList.toggle('pan',space);
-  const e = edge(edgeId), n = node(selected), active = e?.color || editing?.controller?.getColor() || ink;
+  const e = edge(edgeId), n = node(selected), active = e?.color || (editing?.controller?.isComposing() ? ink : editing?.controller?.getColor()) || ink;
   $('inspector-name').textContent = e ? '连线' : editing ? '输入' : '下一笔';
   $('edge-controls').hidden = !e;
   if (e) { $('stroke-style').value = e.style; $('stroke-arrow').value = e.arrow; }
@@ -227,7 +235,7 @@ function openEditor(n,selection,point) {
   finishEdit(); closePanel(); clearHover(); selected = n.id; edgeId = null; source = null;
   const host = document.createElement('div'); host.className = 'editor'; host.setAttribute('aria-label','草稿文字');
   editing = {id:n.id,host,controller:null};
-  render(); dom.get(n.id).insertBefore(host,dom.get(n.id).querySelector('.port'));
+  render(); dom.get(n.id).append(host);
   const controller = PaperEditor.create({host,node:n,inks,typingColor:ink,
     onChange(value,meta) {
       if (!editing || editing.id !== n.id) return;
@@ -238,11 +246,6 @@ function openEditor(n,selection,point) {
     },
     onSelectionChange() {
       if (editing?.controller) sync();
-    },
-    onCompositionEnd() {
-      if (editing?.host !== host || !editing.pendingInk) return;
-      const c = editing.pendingInk;
-      editing.pendingInk = null; applyTypingInk(c);
     }
   });
   editing.controller = controller;
@@ -259,8 +262,7 @@ function openEditor(n,selection,point) {
 }
 function finishEdit() {
   if (!editing) return;
-  const {id,controller,pendingInk} = editing, n = node(id), value = controller.read();
-  if (pendingInk) ink = pendingInk;
+  const {id,controller} = editing, n = node(id), value = controller.read();
   if (n) { n.text = value.text; n.runs = value.runs; }
   detachEditor();
   if (n && !n.text.trim()) {
@@ -347,13 +349,12 @@ function showInkHint(c,scope) {
 function applyTypingInk(c) {
   breakHistoryGroup(); ink = c;
   editing?.controller?.setTypingColor(c);
-  persist(); sync(); showInkHint(c,'下一笔');
+  persist(); sync(); showInkHint(c,editing?.controller?.isComposing() ? '当前笔色' : '下一笔');
 }
 function setInk(c) {
   if (!colors.includes(c)) return;
   if (editing?.controller?.isComposing()) {
-    editing.pendingInk = c;
-    showInkHint(c,'候选确认后换笔'); return;
+    applyTypingInk(c); return;
   }
   breakHistoryGroup();
   const before = capture();
@@ -370,8 +371,7 @@ function setInk(c) {
 }
 function cycleInk(direction) {
   if (document.activeElement?.closest('input,select,dialog')) return;
-  const composing = editing?.controller?.isComposing();
-  const e = edge(edgeId), current = composing ? editing.pendingInk || ink : e?.color || editing?.controller?.getColor() || ink;
+  const e = edge(edgeId), current = e?.color || (editing?.controller?.isComposing() ? ink : editing?.controller?.getColor()) || ink;
   const next = colors[(colors.indexOf(current)+direction+colors.length)%colors.length];
   if (e) setEdgeAttr('color',next); else setInk(next);
 }
@@ -780,7 +780,6 @@ document.addEventListener('keydown',e => {
     }
     return;
   }
-  if (e.target.closest?.('.port') && (key === 'Enter' || key === ' ')) { e.preventDefault(); startLink(e.target.closest('[data-node]').dataset.node); paper.focus(); return; }
   if (e.target.closest?.('button') || e.target.closest?.('#panel')) return;
   if (source && !editing && (key === 'Enter' || key === 'Tab')) {
     e.preventDefault();
@@ -886,7 +885,7 @@ function clearHover() {
 function noteHover(e) {
   const target = e.target.closest('[data-node]');
   const id = target?.dataset.node;
-  if (space || e.buttons || e.pointerType === 'touch' || !panel.hidden || !node(id) || editing?.id === id || e.target.closest('.port')) { clearHover(); return; }
+  if (space || e.buttons || e.pointerType === 'touch' || !panel.hidden || !node(id) || editing?.id === id) { clearHover(); return; }
   if (movable === id) return;
   if (hover?.id === id && Math.hypot(e.clientX-hover.x,e.clientY-hover.y) < 5) return;
   clearHover(); hover = {id,x:e.clientX,y:e.clientY};
@@ -916,7 +915,7 @@ function fingers() {
   return {p:relative((a.x+b.x)/2,(a.y+b.y)/2),dist:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))};
 }
 paper.addEventListener('pointerdown',e => {
-  if (e.target.closest('button:not(.port)')) return;
+  if (e.target.closest('button')) return;
   if (e.pointerType === 'touch') {
     points.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if (points.size === 2) {
@@ -935,12 +934,11 @@ paper.addEventListener('pointerdown',e => {
   clearHover();
   const beforeInteraction = capture();
   const pan = !right && (e.button === 1 || space);
-  if (!pan && !right && (id || e.target.closest('.port'))) finishEdit();
+  if (!pan && !right && id) finishEdit();
   e.preventDefault(); applyWheelPan();
   const base = {id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,cx:cam.x,cy:cam.y};
   if (right) gesture = {...base,type:'contextTap',right,target:e.target};
   else if (pan) gesture = {...base,type:'pan'};
-  else if (e.target.closest('.port') && node(id)) gesture = {...base,type:'link',from:id};
   else if (source) gesture = {...base,type:'connectTap',nodeId:id};
   else if (id && node(id)) {
     const n = node(id);
@@ -962,7 +960,12 @@ paper.addEventListener('pointermove',e => {
   const takingPan = g.type === 'pan';
   if (Math.hypot(dx,dy) > (e.pointerType === 'touch' ? 7 : takingPan ? 2 : 4)) g.moved = true;
   if (!g.moved) return;
-  if (g.type === 'link' || g.type === 'note') { paper.dataset.gesture = 'link'; preview = {id:g.from,...world(e.clientX,e.clientY)}; scheduleDraw(); }
+  if (g.type === 'note') {
+    paper.dataset.gesture = 'link';
+    const target = noteHit(e.clientX,e.clientY,document.elementFromPoint(e.clientX,e.clientY));
+    preview = target === g.from ? null : {id:g.from,target,...world(e.clientX,e.clientY)};
+    scheduleDraw();
+  }
   if (g.type === 'move') {
     paper.dataset.gesture = 'move';
     applyCohort(g.cohort,dx/cam.z,dy/cam.z);
@@ -1004,7 +1007,7 @@ paper.addEventListener('pointerup',e => {
   if (g.type === 'edge' && !g.moved) { finishEdit(); selectEdge(g.lid); paper.focus({preventScroll:true}); }
   if (g.type === 'connectTap' && !g.moved) { finishEdit(); tapConnect(g.nodeId,p); }
   if (g.type === 'note' && !g.moved) { selectNode(g.from); openEditor(node(g.from),null,{x:e.clientX,y:e.clientY}); }
-  if (g.type === 'link' || (g.type === 'note' && g.moved)) {
+  if (g.type === 'note' && g.moved) {
     preview = null;
     if (g.moved) {
       const target = document.elementFromPoint(e.clientX,e.clientY);
@@ -1013,7 +1016,7 @@ paper.addEventListener('pointerup',e => {
       if (id && id !== g.from) { const before = capture(), link = createEdge(g.from,id); changed(before); if (link) selectEdge(link.id); }
       else if (!id && e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) newNote(p.x,p.y,{parent:g.from});
       scheduleDraw();
-    } else { startLink(g.from); paper.focus(); }
+    }
   }
 });
 function cancelGesture(e) {
